@@ -50,32 +50,67 @@ void VcProjectInfo::ParseConfigs()
 {
 	ByteArrayHolder data;
 	if (!FileInfo(baseDir + "/" + fileName).ReadFile(data))
-		throw std::runtime_error("Failed to read .sln file");
+        throw std::runtime_error("Failed to read project file");
 
-	std::string filestr((const char*)data.data(), data.size());
+    const std::string filestr((const char*)data.data(), data.size());
+
+    {
+        std::smatch res;
+        std::regex exp(R"rx(<ConfigurationType>(\w+)</ConfigurationType>)rx");
+        std::string::const_iterator searchStart( filestr.cbegin() );
+        if ( std::regex_search( searchStart, filestr.cend(), res, exp ) )
+        {
+            const std::string configurationType = res[1].str();
+            if (configurationType == "StaticLibrary")
+                type = Type::Static;
+            else if (configurationType == "DynamicLibrary")
+                type = Type::Dynamic;
+            else if (configurationType == "Application")
+                type = Type::App;
+        }
+    }
+    if (type == Type::Unknown)
+        return;
+
+    std::map<std::string, VariableMap> projectProperties;
+    {
+        auto start = filestr.find("/_ProjectFileVersion");
+        auto end   = filestr.find("/PropertyGroup", start);
+        std::regex exp2(R"rx(<(\w+) Condition="'\$\(Configuration\)\|\$\(Platform\)'=='(\w+)\|(\w+)'">([^<]+)</)rx");
+        std::string::const_iterator searchStart( filestr.cbegin() + start );
+        std::smatch res;
+        while ( std::regex_search( searchStart, filestr.cbegin() + end, res, exp2 ) )
+        {
+            searchStart += res.position() + res.length();
+            std::string key = res[1].str();
+            std::string configuration = res[2].str();
+            std::string value = res[4].str();
+            projectProperties[configuration][key] = value;
+        }
+    }
+
+
 	std::smatch res;
-	std::regex exp(R"rx(<ItemDefinitionGroup Condition="'\$\(Configuration\)\|\$\(Platform\)'=='(\w+)\|(\w+)'">\s*<ClCompile>)rx");
-	std::regex exp2(R"rx(<(\w+)>([^<]+)</)rx");
+    std::regex exp(R"rx(<ItemDefinitionGroup Condition="'\$\(Configuration\)\|\$\(Platform\)'=='(\w+)\|(\w+)'">\s*)rx");
+
 	std::string::const_iterator searchStart( filestr.cbegin() );
 	while ( std::regex_search( searchStart, filestr.cend(), res, exp ) )
 	{
 		searchStart += res.position() + res.length();
 		auto off  = searchStart - filestr.cbegin();
-		auto next = filestr.find("</ClCompile>", off);
+        auto next = filestr.find("</ItemDefinitionGroup>", off);
+        std::string deps = filestr.substr(off, next - off);
+
 		Config config;
 		config.configuration = res[1].str();
 		config.platform      = res[2].str();
 
-		std::string deps = filestr.substr(off, next - off);
-		std::smatch res2;
-		std::string::const_iterator searchStart2( deps.cbegin() );
-		while ( std::regex_search( searchStart2, deps.cend(), res2, exp2 ) )
-		{
-			std::string key = res2[1].str();
-			std::string value = res2[2].str();
-			config.variables[key] = value;
-			searchStart2 += res2.position() + res2.length();
-		}
+        config.projectVariables = projectProperties[config.configuration];
+
+        config.clVariables.ParseFromXml("ClCompile", deps);
+        config.libVariables.ParseFromXml("Lib", deps);
+        config.linkVariables.ParseFromXml("Link", deps);
+
 		configs.push_back(config);
 	}
 	//std::cout << "ParseConfigs: " << targetName << std::endl;
@@ -90,12 +125,12 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations)
 
 		ParsedConfig pc;
 		pc.name = config.configuration;
-		pc.includes = config.GetListValue("AdditionalIncludeDirectories");
-		pc.defines = config.GetListValue("PreprocessorDefinitions");
-
+        pc.includes = config.clVariables.GetListValue("AdditionalIncludeDirectories");
+        pc.defines = config.clVariables.GetListValue("PreprocessorDefinitions");
+        pc.link = config.linkVariables.GetListValue("AdditionalDependencies");
 
 		auto flagsProcess = [&pc, &config](const std::string & key, const std::map<std::string, std::string> & mapping) {
-			std::string t = config.GetMappedValue(key, mapping);
+            std::string t = config.clVariables.GetMappedValue(key, mapping);
 			if (!t.empty())
 				pc.flags.push_back(t);
 		};
@@ -108,16 +143,25 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations)
 		flagsProcess("RuntimeTypeInfo", {{"true", "/GR"}});
 		flagsProcess("WarningLevel", {{"Level1", "/W1"}, {"Level2", "/W2"}, {"Level3", "/W3"}});
 		flagsProcess("InlineFunctionExpansion", {{"AnySuitable", "/Ob2"}, {"Disabled", "/Ob0"}});
+        flagsProcess("CompileAs", {{"CompileAsC", "/TC"}, {"CompileAsCPP", "/TP"}});
 
-		auto disabledWarnings = config.GetListValue("DisableSpecificWarnings");
+        auto disabledWarnings = config.clVariables.GetListValue("DisableSpecificWarnings");
 		for (auto warn : disabledWarnings)
 			pc.flags.push_back("/wd" + warn);
-		auto additionalOptions = config.GetStrValue("AdditionalOptions");
-		additionalOptions = std::regex_replace(additionalOptions, std::regex("\\%\\(\\w+\\)"), " ");
+        auto additionalOptions = config.clVariables.GetStrValueFiltered("AdditionalOptions");
 		if (!additionalOptions.empty())
 			pc.flags.push_back(additionalOptions);
-		if (config.GetBoolValue("TreatWarningAsError"))
+        if (config.clVariables.GetBoolValue("TreatWarningAsError"))
 			pc.flags.push_back("/WX");
+
+
+        auto additionalOptionsLink = config.linkVariables.GetStrValueFiltered("AdditionalOptions");
+        if (!additionalOptionsLink.empty())
+            pc.linkFlags.push_back(additionalOptionsLink);
+
+        additionalOptionsLink = config.libVariables.GetStrValueFiltered("AdditionalOptions");
+        if (!additionalOptionsLink.empty())
+            pc.linkFlags.push_back(additionalOptionsLink);
 
 		parsedConfigs.push_back(pc);
 	}
@@ -170,23 +214,63 @@ std::string VcProjectInfo::GetNinjaRules() const
 			ss << "  INCLUDES = " << joinVector(cmdIncludes) << "\n";
 			ss << "  TARGET_COMPILE_PDB = " << targetName << ".dir\\" << config.name << "\\" << targetName << ".pdb\n";
 		}
-		std::string libTargetName = config.name + "_" + targetName;
+        //std::string libTargetName = config.name + "_" + targetName;
+        std::string depLibs;
 		for (const auto & dep : this->dependentTargets)
-			depObjs += " " + config.name + "_" + dep;
-		ss << "\nbuild " << libTargetName << ": phony " << depObjs << "\n";
+            depLibs += " " + config.name + "\\" + dep + ".lib";
+
+        std::string linkLibraries = joinVector(config.link);
+        //ss << "\nbuild " << libTargetName << ": phony " << depObjs << "\n";
+        std::string linkFlags = joinVector(config.linkFlags);
+        if (type == Type::App)
+        {
+            ss << "\nbuild " << config.name << "\\" << targetName << ".exe: CXX_EXECUTABLE_LINKER " << depObjs << " | " << depLibs << " || " << depLibs << "\n"
+            "  FLAGS = \n"
+            "  LINK_FLAGS = " << linkFlags << "\n"
+            "  LINK_LIBRARIES = " << linkLibraries << "\n"
+            "  OBJECT_DIR = " << targetName << ".dir\\" << config.name << "\n"
+            "  POST_BUILD = cd .\n"
+            "  PRE_LINK = cd .\n"
+            "  TARGET_COMPILE_PDB = " << targetName << ".dir\\" << config.name << "\\ \n"
+            "  TARGET_FILE = " << config.name << "\\" << targetName << ".exe\n"
+            "  TARGET_IMPLIB = " << config.name << "\\" << targetName << ".lib\n"
+            "  TARGET_PDB = " << config.name << "\\" << targetName << ".pdb\n"
+                  ;
+        }
+        else if (type == Type::Static)
+        {
+            ss << "\nbuild " << config.name << "\\" << targetName << ".lib: CXX_STATIC_LIBRARY_LINKER " << depObjs << "\n"
+           "  LANGUAGE_COMPILE_FLAGS =\n"
+           "  LINK_FLAGS = " << linkFlags << "\n"
+           "  OBJECT_DIR = " << targetName << ".dir\\" << config.name << "\n"
+           "  POST_BUILD = cd .\n"
+           "  PRE_LINK = cd .\n"
+           "  TARGET_COMPILE_PDB = " << targetName << ".dir\\" << config.name << "\\" << targetName << ".pdb\n"
+           "  TARGET_FILE = " << config.name << "\\" << targetName << ".lib\n"
+           "  TARGET_PDB = " << config.name << "\\" << targetName << ".pdb\n"
+                  ;
+        }
 	}
+
 	return ss.str();
 }
 
-std::string VcProjectInfo::Config::GetStrValue(const std::string & key) const
+std::string VariableMap::GetStrValue(const std::string & key) const
 {
 	auto it = variables.find(key);
 	if (it == variables.cend())
 		return "";
-	return it->second;
+    return it->second;
 }
 
-StringVector VcProjectInfo::Config::GetListValue(const std::string & key) const
+std::string VariableMap::GetStrValueFiltered(const std::string &key) const
+{
+    auto result = GetStrValue(key);
+    result = std::regex_replace(result, std::regex("\\%\\(\\w+\\)"), " ");
+    return result;
+}
+
+StringVector VariableMap::GetListValue(const std::string & key) const
 {
 	std::string val = GetStrValue(key);
 	std::stringstream ss;
@@ -203,7 +287,7 @@ StringVector VcProjectInfo::Config::GetListValue(const std::string & key) const
 	return result;
 }
 
-std::string VcProjectInfo::Config::GetMappedValue(const std::string & key, const std::map<std::string, std::string> & mapping) const
+std::string VariableMap::GetMappedValue(const std::string & key, const std::map<std::string, std::string> & mapping) const
 {
 	std::string val = GetStrValue(key);
 	auto it = mapping.find(val);
@@ -213,7 +297,7 @@ std::string VcProjectInfo::Config::GetMappedValue(const std::string & key, const
 	return it->second;
 }
 
-bool VcProjectInfo::Config::GetBoolValue(const std::string & key, bool def) const
+bool VariableMap::GetBoolValue(const std::string & key, bool def) const
 {
 	std::string val = GetStrValue(key);
 	if (val == "true")
@@ -222,5 +306,26 @@ bool VcProjectInfo::Config::GetBoolValue(const std::string & key, bool def) cons
 	if (val == "")
 		return def;
 
-	return false;
+    return false;
+}
+
+void VariableMap::ParseFromXml(const std::string &blockName, const std::string &data)
+{
+    const auto blockBegin = data.find("<" + blockName + ">");
+    if (blockBegin == std::string::npos)
+        return;
+    const auto blockEnd = data.find("</" + blockName + ">", blockBegin);
+    if (blockEnd == std::string::npos)
+        return;
+    std::regex exp2(R"rx(<(\w+)>([^<]+)</)rx");
+    std::smatch res2;
+    std::string::const_iterator searchStart2( data.cbegin() + blockBegin );
+    while ( std::regex_search( searchStart2, data.cbegin() + blockEnd, res2, exp2 ) )
+    {
+        const std::string key = res2[1].str();
+        const std::string value = res2[2].str();
+      //  std::cerr << key << "=" << value << std::endl;
+        variables[key] = value;
+        searchStart2 += res2.position() + res2.length();
+    }
 }

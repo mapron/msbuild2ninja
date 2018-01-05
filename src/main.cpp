@@ -4,13 +4,7 @@
 #include <regex>
 #include <sstream>
 #include <fstream>
-/*
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <sys/utime.h>
-#include <time.h>
-*/
+
 #include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
 using fserr = std::error_code;
@@ -27,8 +21,7 @@ std::ostream & operator << (std::ostream & os, const StringVector & lst) {
 
 std::ostream & operator << (std::ostream & os, const VcProjectInfo::Config & info) {
 	os << "config (" << info.configuration << "|" << info.platform << "):";
-	for (const auto & dep : info.variables)
-		os << "\n\t\t" << dep.first << "=" << dep.second;
+    os << info.clVariables;
 	os << "\n";
 	return os;
 }
@@ -38,6 +31,8 @@ std::ostream & operator << (std::ostream & os, const VcProjectInfo::ParsedConfig
 	os << "\t\tINCLUDES=" << info.includes << "\n";
 	os << "\t\tDEFINES=" << info.defines << "\n";
 	os << "\t\tFLAGS=" << info.flags << "\n";
+    os << "\t\tLINK=" << info.link << "\n";
+    os << "\t\tLINKFLAGS=" << info.linkFlags << "\n";
 	return os;
 }
 
@@ -77,7 +72,6 @@ void parseSln(const std::string & slnBase, const std::string & slnName, VcProjec
 
 		size_t posStart = searchStart - filestr.cbegin() + res.position() + res.length();
 		size_t posEnd   = filestr.find("EndProjectSection", posStart);
-		//std::string deps = res[4].str();
 		std::smatch res2;
 
 		std::string::const_iterator searchStart2( filestr.cbegin() + posStart );
@@ -91,117 +85,17 @@ void parseSln(const std::string & slnBase, const std::string & slnName, VcProjec
 	//	std::cout << "read tree: " << info.targetName << std::endl;
 	}
 }
-/*
-struct StateDir
-{
-	std::map<std::string, int64_t> files;
-	void check(const std::string & rootDir)
-	{
-		fs::recursive_directory_iterator it(rootDir);
-		for (; it != fs::recursive_directory_iterator(); ++it)
-		{
-			if (fs::is_regular_file( it->path() ))
-			{
-				auto p = it->path().u8string();
-				auto t = fs::last_write_time( it->path() ).time_since_epoch().count();
-				files[p] = t;
-				//std::cout << p << " = " << t << "\n";
-			}
-		}
-	}
-	void save(const std::string & filename)
-	{
-		std::ofstream fout;
-		fout.open(filename, std::ios::out);
-		if (!fout)
-			return;
-		fout << files.size() << "\n";
-		for (auto p : files)
-			fout << p.first << "\n" << p.second << "\n";
-	}
-	void load(const std::string & filename)
-	{
-		std::ifstream fin;
-		fin.open(filename, std::ios::in);
-		if (!fin)
-			return;
-		size_t size;
-		fin >> size;
-		for (size_t i =0; i< size; ++i)
-		{
-			std::string fname;
-			int64_t mtime;
-			fin >> fname >> mtime;
-			files[fname] = mtime;
-		}
-	}
-	void outputDiff(const StateDir & prev)
-	{
-		if (prev.files == files)
-			std::cout << "Nothing changed.\n";
-		for (auto p : prev.files)
-		{
-			auto newtime = files[p.first];
-			if (newtime != p.second)
-			{
-				std::cout << p.first << ": " << p.second << " -> " << newtime << "\n";
-			}
-		}
-	}
-};*/
-
-/*
-void SetUtimeAsFile(std::vector<std::string> files, std::string file)
-{
-	struct stat s;
-
-	stat(file.c_str(), &s);
-	int64_t inT =  fs::last_write_time( file ).time_since_epoch().count();
-	std::cout << file << " has " << inT << "\n\n";
-	struct _utimbuf t;
-	t.actime = s.st_atime + 1;
-	t.modtime = s.st_mtime + 1;
-	for (auto f : files)
-	{
-		std::replace(f.begin(), f.end(), '/', '\\');
-		int r = _utime(f.c_str(), &t);
-		int64_t outT =  fs::last_write_time( f ).time_since_epoch().count();
-		std::cout << f << " now has " << outT << "\n";
-	}
-}*/
 
 int main(int argc, char* argv[])
 {
-	if (argc < 3)
+    if (argc < 2)
 	{
-		std::cout << "usage: <msbuild directory> <cl.exe>\n";
+        std::cout << "usage: <msbuild directory>\n";
 		return 1;
 	}
 	try {
 		const std::string rootDir = argv[1];
-	/*	SetUtimeAsFile( {
-	"E:/testGen/build64/Release/hello_s.lib",
-"E:/testGen/build64/hello_s.dir/Release/hello_s.log",
-"E:/testGen/build64/hello_s.dir/Release/hello_s.tlog/CL.command.1.tlog",
-"E:/testGen/build64/hello_s.dir/Release/hello_s.tlog/CL.read.1.tlog",
-"E:/testGen/build64/hello_s.dir/Release/hello_s.tlog/CL.write.1.tlog",
-"E:/testGen/build64/hello_s.dir/Release/hello_s.tlog/Lib-link.read.1.tlog",
-"E:/testGen/build64/hello_s.dir/Release/hello_s.tlog/Lib-link.write.1.tlog",
-"E:/testGen/build64/hello_s.dir/Release/hello_s.tlog/hello_s.lastbuildstate",
-"E:/testGen/build64/hello_s.dir/Release/hello_s.tlog/lib.command.1.tlog",
-						}, "E:/testGen/build64/hello_s.dir/Release/lib1.obj");
-		//return 0;
-*/
-		/*
-		StateDir prev;
-		prev.load("prev_state");
-		StateDir cur;
-		cur.check(rootDir);
-		cur.outputDiff(prev);
-		cur.save("prev_state");
-		return 0;*/
 
-		const std::string clexe = argv[2];
 		StringVector slnFiles;
 		for(const fs::directory_entry& it : fs::directory_iterator(rootDir))
 		{
@@ -220,8 +114,19 @@ int main(int argc, char* argv[])
 		ninjaBuildContents << "msvc_deps_prefix = Note: including file: \n";
 		ninjaBuildContents << "rule CXX_COMPILER\n"
 							"  deps = msvc\n"
-							"  command = " << clexe << "  /nologo /TP $DEFINES $INCLUDES $FLAGS /showIncludes /Fo$out /Fd$TARGET_COMPILE_PDB /FS -c $in\n"
+                            "  command = cl.exe  /nologo $DEFINES $INCLUDES $FLAGS /showIncludes /Fo$out /Fd$TARGET_COMPILE_PDB /FS -c $in\n"
 							"  description = Building CXX object $out\n\n";
+
+        ninjaBuildContents << "rule CXX_STATIC_LIBRARY_LINKER\n"
+                           "  command = cmd.exe /C \"$PRE_LINK && link.exe /lib /nologo $LINK_FLAGS /out:$TARGET_FILE $in  && $POST_BUILD\"\n"
+                           "  description = Linking CXX static library $TARGET_FILE\n"
+                           "  restat = $RESTAT\n";
+
+        // @todo: cmake dependency ?
+        ninjaBuildContents << "rule CXX_EXECUTABLE_LINKER\n"
+          "  command = cmd.exe /C \"$PRE_LINK && \"C:\\Program Files\\CMake\\bin\\cmake.exe\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:$TARGET_FILE /implib:$TARGET_IMPLIB /pdb:$TARGET_PDB /version:0.0  $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES && $POST_BUILD\"\n"
+          "  description = Linking CXX executable $TARGET_FILE\n"
+          "  restat = $RESTAT\n";
 
 		for (auto & p : vcprojs)
 		{
@@ -234,12 +139,12 @@ int main(int argc, char* argv[])
 			p.CalculateDependentTargets(vcprojs);
 			ninjaBuildContents << p.GetNinjaRules();
 		}
-		std::cout << "Parsed projects:\n";
-		for (const auto & p : vcprojs)
-			std::cout << p;
+        //std::cout << "Parsed projects:\n";
+        //for (const auto & p : vcprojs)
+        //	std::cout << p;
 
 		std::string buildNinja = ninjaBuildContents.str();
-		std::cout << "\nNinja file:\n" << buildNinja;
+        std::cout << "\nNinja file:\n" << buildNinja;
 
 		ByteArrayHolder data;
 		data.resize(buildNinja.size());
