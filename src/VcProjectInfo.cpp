@@ -201,11 +201,13 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin)
 	for (const ParsedConfig & config : parsedConfigs)
 	{
 		os << "<PropertyGroup Condition=\"'$(Configuration)|$(Platform)'=='" << config.name << "|" << config.platform << "'\">\n"
-		   << "<NMakeBuildCommandLine>\"" << ninjaBin <<"\" " << config.targetOutputNameWithDir << "</NMakeBuildCommandLine>\n"
-		  << "<NMakePreprocessorDefinitions>" << joinVector(config.defines, ';') << "</NMakePreprocessorDefinitions>\n"
-		  << "<NMakeIncludeSearchPath>" << joinVector(config.includes, ';') << "</NMakeIncludeSearchPath>\n"
-		<< "</PropertyGroup>\n"
-		   ;
+		   << "<NMakeBuildCommandLine>\""   << ninjaBin << "\" " << config.targetOutputNameWithDir << "</NMakeBuildCommandLine>\n"
+		   << "<NMakeReBuildCommandLine>\"" << ninjaBin << "\" -t clean &amp;&amp; \"" << ninjaBin <<"\" " << config.targetOutputNameWithDir << "</NMakeReBuildCommandLine>
+		   << "<NMakeCleanCommandLine>\""   << ninjaBin << "\" -t clean</NMakeCleanCommandLine>
+		   << "<NMakePreprocessorDefinitions>" << joinVector(config.defines, ';') << "</NMakePreprocessorDefinitions>\n"
+		   << "<NMakeIncludeSearchPath>"       << joinVector(config.includes, ';') << "</NMakeIncludeSearchPath>\n"
+		   << "</PropertyGroup>\n"
+			  ;
 	}
 	std::string nmakeProperties = os.str();
 	const std::string lastPropertyGroup = "</PropertyGroup>";
@@ -273,10 +275,14 @@ std::string VcProjectInfo::GetNinjaRules() const
 		std::string linkLibraries = joinVector(config.link);
 		//ss << "\nbuild " << libTargetName << ": phony " << depObjs << "\n";
 		std::string linkFlags = joinVector(config.linkFlags);
-		if (type == Type::App)
+		if (type == Type::App || type == Type::Dynamic)
 		{
-			ss << "\nbuild " << config.targetOutputNameWithDir << ": CXX_EXECUTABLE_LINKER " << depObjs << " | " << depLibs << " || " << depLibs << "\n"
-			"  FLAGS = \n"
+			if (type == Type::App)
+				ss << "\nbuild " << config.targetOutputNameWithDir << ": CXX_EXECUTABLE_LINKER " << depObjs << " | " << depLibs << " || " << depLibs << "\n";
+			else
+				ss << "\nbuild " << config.name << "\\" << config.targetName << ".lib " << config.targetOutputNameWithDir << ": CXX_SHARED_LIBRARY_LINKER " << depObjs << " | " << depLibs << " || " << depLibs << "\n";
+
+			ss << "  FLAGS = \n"
 			"  LINK_FLAGS = " << linkFlags << "\n"
 			"  LINK_LIBRARIES = " << linkLibraries << "\n"
 			"  OBJECT_DIR = " << targetName << ".dir\\" << config.name << "\n"

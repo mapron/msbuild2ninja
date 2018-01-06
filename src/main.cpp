@@ -132,10 +132,15 @@ int main(int argc, char* argv[])
 						   "  description = Linking CXX static library $TARGET_FILE\n"
 						   "  restat = $RESTAT\n";
 
+		ninjaBuildContents << "rule CXX_SHARED_LIBRARY_LINKER\n"
+			"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_dll --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:$TARGET_FILE /implib:$TARGET_IMPLIB /pdb:$TARGET_PDB /dll /version:0.0 $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES  && $POST_BUILD\"\n"
+			"  description = Linking CXX shared library $TARGET_FILE\n"
+			"  restat = 1\n";
+
 		ninjaBuildContents << "rule CXX_EXECUTABLE_LINKER\n"
-		  "  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:$TARGET_FILE /implib:$TARGET_IMPLIB /pdb:$TARGET_PDB /version:0.0  $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES && $POST_BUILD\"\n"
-		  "  description = Linking CXX executable $TARGET_FILE\n"
-		  "  restat = $RESTAT\n";
+			"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:$TARGET_FILE /implib:$TARGET_IMPLIB /pdb:$TARGET_PDB /version:0.0  $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES && $POST_BUILD\"\n"
+			"  description = Linking CXX executable $TARGET_FILE\n"
+			"  restat = $RESTAT\n";
 
 		for (auto & p : vcprojs)
 		{
