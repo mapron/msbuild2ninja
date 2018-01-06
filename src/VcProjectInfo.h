@@ -26,9 +26,11 @@ inline std::ostream & operator << (std::ostream & os, const VariableMap & info) 
 struct VcProjectInfo
 {
 	std::string baseDir;
-	std::string targetName;
+    std::string targetName;
+
 	std::string fileName;
 	std::string GUID;
+    std::string projectFileData;
 	StringVector dependentGuids;
 	StringVector dependentTargets;
 	StringVector clCompileFiles;
@@ -44,6 +46,11 @@ struct VcProjectInfo
 	std::vector<Config> configs;
 	struct ParsedConfig {
 		std::string name;
+        std::string platform;
+        std::string targetName;
+        std::string targetOutputName;
+        std::string targetOutputNameWithDir;
+
 		StringVector includes;
 		StringVector defines;
         StringVector flags;
@@ -58,6 +65,7 @@ struct VcProjectInfo
 	void ParseFilters();
 	void ParseConfigs();
 	void TransformConfigs(const StringVector & configurations);
+    void ConvertToMakefile(const std::string & ninjaBin);
 	void CalculateDependentTargets(const std::vector<VcProjectInfo> & allTargets);
 	std::string GetNinjaRules() const;
 };

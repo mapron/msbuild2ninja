@@ -21,7 +21,7 @@ std::ostream & operator << (std::ostream & os, const StringVector & lst) {
 
 std::ostream & operator << (std::ostream & os, const VcProjectInfo::Config & info) {
 	os << "config (" << info.configuration << "|" << info.platform << "):";
-    os << info.clVariables;
+	os << info.clVariables;
 	os << "\n";
 	return os;
 }
@@ -31,8 +31,8 @@ std::ostream & operator << (std::ostream & os, const VcProjectInfo::ParsedConfig
 	os << "\t\tINCLUDES=" << info.includes << "\n";
 	os << "\t\tDEFINES=" << info.defines << "\n";
 	os << "\t\tFLAGS=" << info.flags << "\n";
-    os << "\t\tLINK=" << info.link << "\n";
-    os << "\t\tLINKFLAGS=" << info.linkFlags << "\n";
+	os << "\t\tLINK=" << info.link << "\n";
+	os << "\t\tLINKFLAGS=" << info.linkFlags << "\n";
 	return os;
 }
 
@@ -84,17 +84,27 @@ void parseSln(const std::string & slnBase, const std::string & slnName, VcProjec
 		searchStart += res.position() + res.length();
 	//	std::cout << "read tree: " << info.targetName << std::endl;
 	}
+	filestr = std::regex_replace(filestr,
+										 std::regex("postProject[\r\n\t {}=0-9A-F-]+EndProjectSection"),
+										 "postProject\n\tEndProjectSection");
+
+	data.resize(filestr.size());
+	memcpy(data.data(), filestr.c_str(), filestr.size());
+	if (!FileInfo(slnBase + "/" + slnName).WriteFile(data))
+		 throw std::runtime_error("Failed to write file:" + slnName);
 }
 
 int main(int argc, char* argv[])
 {
-    if (argc < 2)
+	if (argc < 4)
 	{
-        std::cout << "usage: <msbuild directory>\n";
+		std::cout << "usage: <msbuild directory> <ninja binary> <cmake binary>\n";
 		return 1;
 	}
 	try {
 		const std::string rootDir = argv[1];
+		const std::string ninjaExe = argv[2];
+		const std::string cmakeExe = argv[3];
 
 		StringVector slnFiles;
 		for(const fs::directory_entry& it : fs::directory_iterator(rootDir))
@@ -114,37 +124,37 @@ int main(int argc, char* argv[])
 		ninjaBuildContents << "msvc_deps_prefix = Note: including file: \n";
 		ninjaBuildContents << "rule CXX_COMPILER\n"
 							"  deps = msvc\n"
-                            "  command = cl.exe  /nologo $DEFINES $INCLUDES $FLAGS /showIncludes /Fo$out /Fd$TARGET_COMPILE_PDB /FS -c $in\n"
+							"  command = cl.exe  /nologo $DEFINES $INCLUDES $FLAGS /showIncludes /Fo$out /Fd$TARGET_COMPILE_PDB /FS -c $in\n"
 							"  description = Building CXX object $out\n\n";
 
-        ninjaBuildContents << "rule CXX_STATIC_LIBRARY_LINKER\n"
-                           "  command = cmd.exe /C \"$PRE_LINK && link.exe /lib /nologo $LINK_FLAGS /out:$TARGET_FILE $in  && $POST_BUILD\"\n"
-                           "  description = Linking CXX static library $TARGET_FILE\n"
-                           "  restat = $RESTAT\n";
+		ninjaBuildContents << "rule CXX_STATIC_LIBRARY_LINKER\n"
+						   "  command = cmd.exe /C \"$PRE_LINK && link.exe /lib /nologo $LINK_FLAGS /out:$TARGET_FILE $in  && $POST_BUILD\"\n"
+						   "  description = Linking CXX static library $TARGET_FILE\n"
+						   "  restat = $RESTAT\n";
 
-        // @todo: cmake dependency ?
-        ninjaBuildContents << "rule CXX_EXECUTABLE_LINKER\n"
-          "  command = cmd.exe /C \"$PRE_LINK && \"C:\\Program Files\\CMake\\bin\\cmake.exe\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:$TARGET_FILE /implib:$TARGET_IMPLIB /pdb:$TARGET_PDB /version:0.0  $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES && $POST_BUILD\"\n"
-          "  description = Linking CXX executable $TARGET_FILE\n"
-          "  restat = $RESTAT\n";
+		ninjaBuildContents << "rule CXX_EXECUTABLE_LINKER\n"
+		  "  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:$TARGET_FILE /implib:$TARGET_IMPLIB /pdb:$TARGET_PDB /version:0.0  $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES && $POST_BUILD\"\n"
+		  "  description = Linking CXX executable $TARGET_FILE\n"
+		  "  restat = $RESTAT\n";
 
 		for (auto & p : vcprojs)
 		{
 			p.ParseFilters();
 			p.ParseConfigs();
 			p.TransformConfigs({"Debug", "Release"});
+			p.ConvertToMakefile(ninjaExe);
 		}
 		for (auto & p : vcprojs)
 		{
 			p.CalculateDependentTargets(vcprojs);
 			ninjaBuildContents << p.GetNinjaRules();
 		}
-        //std::cout << "Parsed projects:\n";
-        //for (const auto & p : vcprojs)
-        //	std::cout << p;
+		//std::cout << "Parsed projects:\n";
+		//for (const auto & p : vcprojs)
+		//	std::cout << p;
 
 		std::string buildNinja = ninjaBuildContents.str();
-        std::cout << "\nNinja file:\n" << buildNinja;
+		std::cout << "\nNinja file:\n" << buildNinja;
 
 		ByteArrayHolder data;
 		data.resize(buildNinja.size());
