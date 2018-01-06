@@ -18,6 +18,22 @@ std::string joinVector(const StringVector & lst, char sep = ' ')
 	return ss.str();
 }
 
+StringVector strToList(const std::string & val, char sep = ';')
+{
+	std::stringstream ss;
+	ss.str(val);
+	std::string item;
+	StringVector result;
+	while (std::getline(ss, item, sep))
+	{
+		if (!item.empty() && item.at(0) != '%')
+		{
+			result.push_back(item);
+		}
+	}
+	return result;
+}
+
 }
 
 void VcProjectInfo::ParseFilters()
@@ -202,8 +218,8 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin)
 	{
 		os << "<PropertyGroup Condition=\"'$(Configuration)|$(Platform)'=='" << config.name << "|" << config.platform << "'\">\n"
 		   << "<NMakeBuildCommandLine>\""   << ninjaBin << "\" " << config.targetOutputNameWithDir << "</NMakeBuildCommandLine>\n"
-		   << "<NMakeReBuildCommandLine>\"" << ninjaBin << "\" -t clean &amp;&amp; \"" << ninjaBin <<"\" " << config.targetOutputNameWithDir << "</NMakeReBuildCommandLine>
-		   << "<NMakeCleanCommandLine>\""   << ninjaBin << "\" -t clean</NMakeCleanCommandLine>
+		   << "<NMakeReBuildCommandLine>\"" << ninjaBin << "\" -t clean &amp;&amp; \"" << ninjaBin <<"\" " << config.targetOutputNameWithDir << "</NMakeReBuildCommandLine>\n"
+		   << "<NMakeCleanCommandLine>\""   << ninjaBin << "\" -t clean</NMakeCleanCommandLine>\n"
 		   << "<NMakePreprocessorDefinitions>" << joinVector(config.defines, ';') << "</NMakePreprocessorDefinitions>\n"
 		   << "<NMakeIncludeSearchPath>"       << joinVector(config.includes, ';') << "</NMakeIncludeSearchPath>\n"
 		   << "</PropertyGroup>\n"
@@ -213,6 +229,65 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin)
 	const std::string lastPropertyGroup = "</PropertyGroup>";
 	auto pos = projectFileData.rfind(lastPropertyGroup);
 	projectFileData.insert(projectFileData.begin() + pos + lastPropertyGroup.size(), nmakeProperties.cbegin(), nmakeProperties.cend());
+
+	auto extractParam = [this](const std::string & data, const std::string & name)
+	{
+		const std::string startMark = "<" + name + " Condition=\"'$(Configuration)|$(Platform)'=='" +parsedConfigs[0].name + "|"+ parsedConfigs[0].platform +"'\">";
+		const std::string endMark = "</" + name + ">";
+		auto startPos = data.find(startMark);
+		auto endPos  =  data.find(endMark, startPos);
+		return data.substr(startPos + startMark.size(), endPos - startPos - startMark.size());
+	};
+
+	auto filterCommandScript = [](const std::string & data) -> std::string
+	{
+		auto lines = strToList(data, '\n');
+		for (const auto & line : lines)
+		{
+			if (line.size() < 4)
+				continue;
+			if (line.find("if ") == 0 || line.find("cd ") == 0 || line.find("setlocal") == 0 || line[0] == ':')
+				continue;
+
+			return std::regex_replace(line, std::regex("[\r\n]"), "");
+		}
+		return "";
+	};
+
+	auto extractMainInput = [](const StringVector & inputs) -> std::string
+	{
+		for (const auto & input : inputs)
+		{
+			if (input.find("CMakeLists.txt") != std::string::npos)
+				return "";
+			if (input.find(".rule") != std::string::npos)
+				continue;
+
+			return input;
+		}
+		return "";
+	};
+
+	while (true)
+	{
+		auto startPos = projectFileData.find("<CustomBuild ");
+		if (startPos == std::string::npos)
+			break;
+		const std::string endCustomBuild = "</CustomBuild>";
+		auto endPos = projectFileData.find(endCustomBuild, startPos);
+		const std::string customBuildRule = projectFileData.substr(startPos, endPos-startPos);
+		projectFileData.erase(projectFileData.begin() + startPos, projectFileData.begin() + endPos +endCustomBuild.size() );
+
+		CustomBuild rule;
+		rule.message = extractParam(customBuildRule, "Message");
+		rule.output = extractParam(customBuildRule, "Outputs");
+		auto inputs = strToList(extractParam(customBuildRule, "AdditionalInputs"));
+		rule.input = extractMainInput(inputs);
+		rule.command = filterCommandScript(extractParam(customBuildRule, "Command"));
+
+		if (!rule.input.empty())
+			customCommands.push_back(rule);
+	}
 
 	ByteArrayHolder data;
 	data.resize(projectFileData.size());
@@ -234,20 +309,38 @@ void VcProjectInfo::CalculateDependentTargets(const std::vector<VcProjectInfo> &
 	}
 }
 
-std::string VcProjectInfo::GetNinjaRules() const
+std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir) const
 {
 	std::ostringstream ss;
 	std::regex re(R"rx(\:)rx");
 	std::regex re2(R"rx(\.cpp$)rx");
+	if (type == Type::Unknown)
+		return "";
 
+	auto ninjaEscape = [&rootDir](std::string value)
+	{
+		if (value.find(rootDir) == 0)
+		{
+			value = value.substr( rootDir.size() + 1);
+		}
+		return std::regex_replace(value, std::regex("[:]"), "$:");
+	};
+	std::string orderDeps;
+	for (const auto & customCmd : this->customCommands)
+	{
+		ss << "\nbuild " << ninjaEscape(customCmd.output) << ": CUSTOM_COMMAND " << ninjaEscape(customCmd.input) << "\n"
+			"  COMMAND = cmd.exe /C \"" << customCmd.command << "\" \n"
+			"  DESC = " << customCmd.message << "\n"
+			"  restat = 1\n"
+			  ;
+		orderDeps += " " + ninjaEscape(customCmd.output);
+	}
 
 	for (const auto & config : this->parsedConfigs)
 	{
 		std::string depObjs = "";
 		for (const auto & filename : this->clCompileFiles)
 		{
-			//std::string rulename = "CXX_" + config.name + "_" + this->targetName;
-			std::string escapedName = std::regex_replace(filename, re, "$:");
 			StringVector cmdDefines;
 			for (const auto & def : config.defines)
 				cmdDefines.push_back("/D" + def);
@@ -255,12 +348,12 @@ std::string VcProjectInfo::GetNinjaRules() const
 			for (const auto & inc : config.includes)
 				cmdIncludes.push_back("/I" + inc);
 
-			std::string objName = escapedName.substr(escapedName.rfind("\\") + 1);
+			std::string objName = filename.substr(filename.rfind("\\") + 1);
 			objName =  std::regex_replace(objName, re2, ".obj");
 			std::string fullObjName = targetName + ".dir\\" + config.name + "\\" + objName;
 			depObjs += " " + fullObjName;
 
-			ss << "build " << fullObjName << ": CXX_COMPILER " << escapedName << "\n"
+			ss << "build " << fullObjName << ": CXX_COMPILER " << ninjaEscape(filename) << "\n"
 			  << "  FLAGS = " << joinVector(config.flags) << "\n";
 
 			ss << "  DEFINES = " << joinVector(cmdDefines) << "\n";
@@ -278,9 +371,9 @@ std::string VcProjectInfo::GetNinjaRules() const
 		if (type == Type::App || type == Type::Dynamic)
 		{
 			if (type == Type::App)
-				ss << "\nbuild " << config.targetOutputNameWithDir << ": CXX_EXECUTABLE_LINKER " << depObjs << " | " << depLibs << " || " << depLibs << "\n";
+				ss << "\nbuild " << config.targetOutputNameWithDir << ": CXX_EXECUTABLE_LINKER " << depObjs << " | " << depLibs << " || " << depLibs << orderDeps << "\n";
 			else
-				ss << "\nbuild " << config.name << "\\" << config.targetName << ".lib " << config.targetOutputNameWithDir << ": CXX_SHARED_LIBRARY_LINKER " << depObjs << " | " << depLibs << " || " << depLibs << "\n";
+				ss << "\nbuild " << config.name << "\\" << config.targetName << ".lib " << config.targetOutputNameWithDir << ": CXX_SHARED_LIBRARY_LINKER " << depObjs << " | " << depLibs << " || " << depLibs << orderDeps << "\n";
 
 			ss << "  FLAGS = \n"
 			"  LINK_FLAGS = " << linkFlags << "\n"
@@ -296,7 +389,7 @@ std::string VcProjectInfo::GetNinjaRules() const
 		}
 		else if (type == Type::Static)
 		{
-			ss << "\nbuild " << config.targetOutputNameWithDir << ": CXX_STATIC_LIBRARY_LINKER " << depObjs << "\n"
+			ss << "\nbuild " << config.targetOutputNameWithDir << ": CXX_STATIC_LIBRARY_LINKER " << depObjs << " || " << orderDeps << "\n"
 		   "  LANGUAGE_COMPILE_FLAGS =\n"
 		   "  LINK_FLAGS = " << linkFlags << "\n"
 		   "  OBJECT_DIR = " << targetName << ".dir\\" << config.name << "\n"
@@ -308,6 +401,10 @@ std::string VcProjectInfo::GetNinjaRules() const
 				  ;
 		}
 	}
+
+
+
+
 
 	return ss.str();
 }
@@ -330,18 +427,7 @@ std::string VariableMap::GetStrValueFiltered(const std::string &key) const
 StringVector VariableMap::GetListValue(const std::string & key) const
 {
 	std::string val = GetStrValue(key);
-	std::stringstream ss;
-	ss.str(val);
-	std::string item;
-	StringVector result;
-	while (std::getline(ss, item, ';'))
-	{
-		if (!item.empty() && item.at(0) != '%')
-		{
-			result.push_back(item);
-		}
-	}
-	return result;
+	return strToList(val);
 }
 
 std::string VariableMap::GetMappedValue(const std::string & key, const std::map<std::string, std::string> & mapping) const

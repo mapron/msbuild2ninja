@@ -142,6 +142,10 @@ int main(int argc, char* argv[])
 			"  description = Linking CXX executable $TARGET_FILE\n"
 			"  restat = $RESTAT\n";
 
+		ninjaBuildContents << "rule CUSTOM_COMMAND\n"
+							  "  command = $COMMAND\n"
+							  "  description = $DESC\n";
+
 		for (auto & p : vcprojs)
 		{
 			p.ParseFilters();
@@ -152,7 +156,7 @@ int main(int argc, char* argv[])
 		for (auto & p : vcprojs)
 		{
 			p.CalculateDependentTargets(vcprojs);
-			ninjaBuildContents << p.GetNinjaRules();
+			ninjaBuildContents << p.GetNinjaRules(rootDir);
 		}
 		//std::cout << "Parsed projects:\n";
 		//for (const auto & p : vcprojs)
