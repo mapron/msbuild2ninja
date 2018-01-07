@@ -24,6 +24,20 @@ inline std::ostream & operator << (std::ostream & os, const VariableMap & info) 
 	return os;
 }
 
+class NinjaEscaper
+{
+	std::map<std::string, std::string> idents;
+	std::ostringstream identsDecl;
+	int maxIdent = 0;
+	const std::string buildRoot;
+public:
+	NinjaEscaper(const std::string & buildRoot_) : buildRoot(buildRoot_) {}
+	std::string Escape(std::string value);
+	std::string Escape(const StringVector & values);
+
+	std::string GetIdentsDecls() const;
+};
+
 struct VcProjectInfo
 {
 	std::string baseDir;
@@ -71,6 +85,7 @@ struct VcProjectInfo
 	{
 		std::string message;
 		std::string input;
+		StringVector deps;
 		std::string output;
 		std::string command;
 	};
@@ -83,6 +98,6 @@ struct VcProjectInfo
 	void TransformConfigs(const StringVector & configurations, const std::string &rootDir);
 	void ConvertToMakefile(const std::string & ninjaBin, bool dryRun);
 	void CalculateDependentTargets(const std::vector<VcProjectInfo> & allTargets);
-	std::string GetNinjaRules(const std::string &rootDir, std::set<std::string> &existingRules) const;
+	std::string GetNinjaRules(std::set<std::string> &existingRules, NinjaEscaper & escaper) const;
 };
 using VcProjectList = std::vector<VcProjectInfo>;

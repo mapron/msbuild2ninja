@@ -261,18 +261,21 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, bool dryRun)
 		return "";
 	};
 
-	auto extractMainInput = [](const StringVector & inputs) -> std::string
+	auto filterCustomInputs = [](const StringVector & inputs) -> StringVector
 	{
-		for (const auto & input : inputs)
-		{
+		StringVector result;
+		bool ignoreAll = false;
+		std::copy_if(inputs.cbegin(), inputs.cend(), std::back_inserter(result), [&ignoreAll](const auto & input){
 			if (input.find("CMakeLists.txt") != std::string::npos)
-				return "";
-			if (input.find(".rule") != std::string::npos)
-				continue;
+				ignoreAll = true;
 
-			return input;
-		}
-		return "";
+			if (input.find(".rule") != std::string::npos || input.find(".depends") != std::string::npos)
+				return false;
+			return true;
+		});
+		if (ignoreAll)
+			return {};
+		return result;
 	};
 
 	while (true)
@@ -290,7 +293,12 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, bool dryRun)
 		rule.message = extractParam(customBuildRule, "Message");
 		rule.output = extractParam(customBuildRule, "Outputs");
 		auto inputs = strToList(extractParam(customBuildRule, "AdditionalInputs"));
-		rule.input = extractMainInput(inputs);
+		inputs = filterCustomInputs(inputs);
+		if (inputs.empty())
+			continue;
+		rule.input = inputs[0];
+		inputs.erase(inputs.begin());
+		rule.deps = inputs;
 		rule.command = filterCommandScript(extractParam(customBuildRule, "Command"));
 
 		if (!rule.input.empty())
@@ -314,21 +322,14 @@ void VcProjectInfo::CalculateDependentTargets(const std::vector<VcProjectInfo> &
 	}
 }
 
-std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir, std::set<std::string> & existingRules) const
+std::string VcProjectInfo::GetNinjaRules(std::set<std::string> & existingRules, NinjaEscaper & escaper) const
 {
 	std::ostringstream ss;
 
 	if (type == Type::Unknown)
 		return "";
 
-	auto ninjaEscape = [&rootDir](std::string value)
-	{
-		if (value.find(rootDir) == 0)
-		{
-			value = value.substr( rootDir.size() + 1);
-		}
-		return std::regex_replace(value, std::regex("[:]"), "$:");
-	};
+
 	std::set<std::string> existingObjNames;
 	auto getObjectName = [&existingObjNames](const std::string & filename, const std::string & intDir)
 	{
@@ -347,9 +348,9 @@ std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir, std::set<s
 	std::string orderDeps;
 	for (const auto & customCmd : this->customCommands)
 	{
-		const auto escapedOut = ninjaEscape(customCmd.output);
+		const auto escapedOut = escaper.Escape(customCmd.output);
 		if (existingRules.find(escapedOut) == existingRules.end())
-			ss << "\nbuild " << escapedOut << ": CUSTOM_COMMAND " << ninjaEscape(customCmd.input) << "\n"
+			ss << "\nbuild " << escapedOut << ": CUSTOM_COMMAND " << escaper.Escape(customCmd.input) << " " << escaper.Escape(customCmd.deps) <<  "\n"
 				"  COMMAND = cmd.exe /C \"" << customCmd.command << "\" \n"
 				"  DESC = " << customCmd.message << "\n"
 				"  restat = 1\n"
@@ -378,7 +379,7 @@ std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir, std::set<s
 			auto fullObjName = getObjectName(filename, config.intDir);
 			depObjs += " " + fullObjName;
 
-			ss << "build " << fullObjName << ": CXX_COMPILER " << ninjaEscape(filename) << " || order_only_" << this->targetName  << "\n";
+			ss << "build " << fullObjName << ": CXX_COMPILER " << escaper.Escape(filename) << " || order_only_" << this->targetName  << "\n";
 			ss << "  FLAGS = " + joinVector(config.flags) + "\n"
 				<< preprocessor;
 			ss << "  TARGET_COMPILE_PDB = " << config.intDir << targetName << ".pdb\n";
@@ -388,7 +389,7 @@ std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir, std::set<s
 			auto fullObjName = getObjectName(filename, config.intDir);
 			depObjs += " " + fullObjName;
 
-			ss << "build " << fullObjName << ": RC_COMPILER " << ninjaEscape(filename) << " || order_only_" << this->targetName  << "\n";
+			ss << "build " << fullObjName << ": RC_COMPILER " << escaper.Escape(filename) << " || order_only_" << this->targetName  << "\n";
 			ss << preprocessor;
 		}
 		std::string depLink, depsTargets = " order_only_" + this->targetName;
@@ -398,12 +399,12 @@ std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir, std::set<s
 			assert(depConfig.name == config.name);
 			if (dep->type == Type::Dynamic)
 			{
-				depLink     += " " + ninjaEscape(depConfig.getImportNameWithDir());
-				depsTargets += " " + ninjaEscape(depConfig.getOutputNameWithDir());
+				depLink     += " " + escaper.Escape(depConfig.getImportNameWithDir());
+				depsTargets += " " + escaper.Escape(depConfig.getOutputNameWithDir());
 			}
 			else if (dep->type == Type::Static)
 			{
-				const auto lib = ninjaEscape(depConfig.getOutputNameWithDir());
+				const auto lib = escaper.Escape(depConfig.getOutputNameWithDir());
 				depsTargets += " " + lib;
 				depLink     += " " + lib;
 			}
@@ -417,9 +418,9 @@ std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir, std::set<s
 			const bool useRsp = linkFlags.size() + linkLibraries.size() + depObjs.size() > 8000; // do not support NT 4
 			const std::string ruleSuffix = useRsp ? "_RSP" : "";
 			if (type == Type::App)
-				ss << "\nbuild " << ninjaEscape(config.getOutputNameWithDir()) << ": CXX_EXECUTABLE_LINKER" << ruleSuffix << " " << depObjs << " | " << depLink << " || " << depsTargets << "\n";
+				ss << "\nbuild " << escaper.Escape(config.getOutputNameWithDir()) << ": CXX_EXECUTABLE_LINKER" << ruleSuffix << " " << depObjs << " | " << depLink << " || " << depsTargets << "\n";
 			else
-				ss << "\nbuild " << ninjaEscape(config.getImportNameWithDir()) << " " << ninjaEscape(config.getOutputNameWithDir()) << ": CXX_SHARED_LIBRARY_LINKER" << ruleSuffix << " " << depObjs << " | " << depLink << " || " << depsTargets << "\n";
+				ss << "\nbuild " << escaper.Escape(config.getImportNameWithDir()) << " " << escaper.Escape(config.getOutputNameWithDir()) << ": CXX_SHARED_LIBRARY_LINKER" << ruleSuffix << " " << depObjs << " | " << depLink << " || " << depsTargets << "\n";
 
 			ss << "  FLAGS = \n"
 			"  LINK_FLAGS = " << linkFlags << "\n"
@@ -428,23 +429,23 @@ std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir, std::set<s
 			"  POST_BUILD = cd .\n"
 			"  PRE_LINK = cd .\n"
 			"  TARGET_COMPILE_PDB = " << targetName << ".dir\\" << config.name << "\\ \n"
-			"  TARGET_FILE = " << ninjaEscape(config.getOutputNameWithDir()) << "\n"
-			"  TARGET_IMPLIB = " << ninjaEscape(config.getImportNameWithDir()) << "\n"
-			"  TARGET_PDB = " << ninjaEscape(config.outDir + config.targetName) << ".pdb\n"
+			"  TARGET_FILE = " << escaper.Escape(config.getOutputNameWithDir()) << "\n"
+			"  TARGET_IMPLIB = " << escaper.Escape(config.getImportNameWithDir()) << "\n"
+			"  TARGET_PDB = " << escaper.Escape(config.outDir + config.targetName) << ".pdb\n"
 				  ;
 			if (useRsp)
 				ss << "  RSP_FILE = "<< config.name << "\\" << config.targetName << ".rsp\n";
 		}
 		else if (type == Type::Static)
 		{
-			ss << "\nbuild " << ninjaEscape(config.getOutputNameWithDir()) << ": CXX_STATIC_LIBRARY_LINKER " << depObjs << " || " << depsTargets << "\n"
+			ss << "\nbuild " << escaper.Escape(config.getOutputNameWithDir()) << ": CXX_STATIC_LIBRARY_LINKER " << depObjs << " || " << depsTargets << "\n"
 		   "  LANGUAGE_COMPILE_FLAGS =\n"
 		   "  LINK_FLAGS = " << linkFlags << "\n"
 		   "  OBJECT_DIR = " << targetName << ".dir\\" << config.name << "\n"
 		   "  POST_BUILD = cd .\n"
 		   "  PRE_LINK = cd .\n"
 		   "  TARGET_COMPILE_PDB = " << targetName << ".dir\\" << config.name << "\\" << config.targetName << ".pdb\n"
-		   "  TARGET_FILE = " << ninjaEscape(config.getOutputNameWithDir()) << "\n"
+		   "  TARGET_FILE = " << escaper.Escape(config.getOutputNameWithDir()) << "\n"
 		   "  TARGET_PDB = " << config.name << "\\" << config.targetName << ".pdb\n"
 				  ;
 		}
@@ -516,4 +517,37 @@ void VariableMap::ParseFromXml(const std::string &blockName, const std::string &
 		variables[key] = value;
 		searchStart2 += res2.position() + res2.length();
 	}
+}
+
+std::string NinjaEscaper::Escape(std::string value)
+{
+	if (value.find(buildRoot) == 0)
+		value = value.substr( buildRoot.size() + 1);
+
+	if (value.find('(') != std::string::npos || value.find(')') != std::string::npos)
+	{
+		auto it = idents.find(value);
+		if (it != idents.cend())
+			return "$" + it->second;
+		const std::string newIdent = "ident" + std::to_string(maxIdent++);
+		identsDecl << newIdent << " = " << value << "\n";
+		idents[value] = newIdent;
+		return "$" + newIdent;
+	}
+	return std::regex_replace(value, std::regex("([ ]|[:])"), "$$$1"); // "$$" converts to "$" symbol, and $1 captures 1 match.
+}
+
+std::string NinjaEscaper::Escape(const StringVector &values)
+{
+	std::string result;
+	for (const auto & value : values)
+	{
+		result += " " + Escape(value);
+	}
+	return result;
+}
+
+std::string NinjaEscaper::GetIdentsDecls() const
+{
+	return identsDecl.str();
 }

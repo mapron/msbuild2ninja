@@ -119,48 +119,48 @@ int main(int argc, char* argv[])
 		VcProjectList vcprojs;
 		parseSln(rootDir,  slnFiles[0], vcprojs, dryRun);
 
-		std::ostringstream ninjaBuildContents;
-		ninjaBuildContents << "ninja_required_version = 1.5\n";
-		ninjaBuildContents << "msvc_deps_prefix = Note: including file: \n";
-		ninjaBuildContents << "rule CXX_COMPILER\n"
+		std::ostringstream ninjaHeader;
+		ninjaHeader << "ninja_required_version = 1.5\n";
+		ninjaHeader << "msvc_deps_prefix = Note: including file: \n";
+		ninjaHeader << "rule CXX_COMPILER\n"
 							"  deps = msvc\n"
 							"  command = cl.exe  /nologo $DEFINES $INCLUDES $FLAGS /showIncludes /Fo$out /Fd$TARGET_COMPILE_PDB /FS -c $in\n"
 							"  description = Building CXX object $out\n\n";
 
-		ninjaBuildContents << "rule CXX_STATIC_LIBRARY_LINKER\n"
+		ninjaHeader << "rule CXX_STATIC_LIBRARY_LINKER\n"
 						   "  command = cmd.exe /C \"$PRE_LINK && link.exe /lib /nologo $LINK_FLAGS /out:$TARGET_FILE $in  && $POST_BUILD\"\n"
 						   "  description = Linking CXX static library $TARGET_FILE\n"
 						   "  restat = $RESTAT\n";
 
-		ninjaBuildContents << "rule CXX_SHARED_LIBRARY_LINKER\n"
+		ninjaHeader << "rule CXX_SHARED_LIBRARY_LINKER\n"
 			"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_dll --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:$TARGET_FILE /implib:$TARGET_IMPLIB /pdb:$TARGET_PDB /dll /version:0.0 $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES  && $POST_BUILD\"\n"
 			"  description = Linking CXX shared library $TARGET_FILE\n"
 			"  restat = 1\n";
 
-		ninjaBuildContents << "rule CXX_SHARED_LIBRARY_LINKER_RSP\n"
+		ninjaHeader << "rule CXX_SHARED_LIBRARY_LINKER_RSP\n"
 			"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_dll --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo @$RSP_FILE  /out:$TARGET_FILE /implib:$TARGET_IMPLIB /pdb:$TARGET_PDB /dll /version:0.0 $LINK_FLAGS  && $POST_BUILD\"\n"
 			"  description = Linking CXX shared library $TARGET_FILE\n"
 			"  rspfile = $RSP_FILE\n"
 			"  rspfile_content = $in_newline $LINK_PATH $LINK_LIBRARIES \n"
 			"  restat = 1\n";
 
-		ninjaBuildContents << "rule CXX_EXECUTABLE_LINKER\n"
+		ninjaHeader << "rule CXX_EXECUTABLE_LINKER\n"
 			"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:$TARGET_FILE /pdb:$TARGET_PDB /version:0.0  $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES && $POST_BUILD\"\n"
 			"  description = Linking CXX executable $TARGET_FILE\n"
 			"  restat = $RESTAT\n";
 
-		ninjaBuildContents << "rule CXX_EXECUTABLE_LINKER_RSP\n"
+		ninjaHeader << "rule CXX_EXECUTABLE_LINKER_RSP\n"
 			"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo @$RSP_FILE  /out:$TARGET_FILE /pdb:$TARGET_PDB /version:0.0  $LINK_FLAGS && $POST_BUILD\"\n"
 			"  rspfile = $RSP_FILE\n"
 			"  rspfile_content = $in_newline $LINK_PATH $LINK_LIBRARIES \n"
 			"  description = Linking CXX executable $TARGET_FILE\n"
 			"  restat = $RESTAT\n";
 
-		ninjaBuildContents << "rule CUSTOM_COMMAND\n"
+		ninjaHeader << "rule CUSTOM_COMMAND\n"
 							  "  command = $COMMAND\n"
 							  "  description = $DESC\n";
 
-		ninjaBuildContents << "rule RC_COMPILER\n"
+		ninjaHeader << "rule RC_COMPILER\n"
 							 "  command = rc.exe $DEFINES $INCLUDES $FLAGS /fo$out $in\n"
 							 "  description = Building RC object $out\n";
 
@@ -171,16 +171,18 @@ int main(int argc, char* argv[])
 			p.ConvertToMakefile(ninjaExe, dryRun);
 		}
 		std::set<std::string> existingRules;
+		NinjaEscaper escaper(rootDir);
+		std::ostringstream targetsRules;
 		for (auto & p : vcprojs)
 		{
 			p.CalculateDependentTargets(vcprojs);
-			ninjaBuildContents << p.GetNinjaRules(rootDir, existingRules);
+			targetsRules << p.GetNinjaRules(existingRules, escaper);
 		}
 		//std::cout << "Parsed projects:\n";
 		//for (const auto & p : vcprojs)
 		//	std::cout << p;
 
-		std::string buildNinja = ninjaBuildContents.str();
+		const std::string buildNinja = ninjaHeader.str() + escaper.GetIdentsDecls() + targetsRules.str();
 		std::cout << "\nNinja file:\n" << buildNinja;
 
 		FileInfo(rootDir + "/build.ninja").WriteFile(buildNinja, false);
