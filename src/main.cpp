@@ -51,13 +51,12 @@ std::ostream & operator << (std::ostream & os, const VcProjectInfo & info) {
 	return os;
 }
 
-void parseSln(const std::string & slnBase, const std::string & slnName, VcProjectList & vcprojs)
+void parseSln(const std::string & slnBase, const std::string & slnName, VcProjectList & vcprojs, const bool dryRun)
 {
-	ByteArrayHolder data;
-	if (!FileInfo(slnBase + "/" + slnName).ReadFile(data))
+	std::string filestr;
+	if (!FileInfo(slnBase + "/" + slnName).ReadFile(filestr))
 		throw std::runtime_error("Failed to read .sln file");
 
-	std::string filestr((const char*)data.data(), data.size());
 	std::smatch res;
 	std::regex exp(R"rx(Project\("\{[0-9A-F-]+\}"\) = "(\w+)", "(\w+\.vcxproj)", "\{([0-9A-F-]+)\}"\s*ProjectSection\(ProjectDependencies\) = postProject)rx");
 	std::regex exp2(R"rx(\{([0-9A-F-]+)\} = )rx");
@@ -88,9 +87,7 @@ void parseSln(const std::string & slnBase, const std::string & slnName, VcProjec
 										 std::regex("postProject[\r\n\t {}=0-9A-F-]+EndProjectSection"),
 										 "postProject\n\tEndProjectSection");
 
-	data.resize(filestr.size());
-	memcpy(data.data(), filestr.c_str(), filestr.size());
-	if (!FileInfo(slnBase + "/" + slnName).WriteFile(data))
+	if (!dryRun && !FileInfo(slnBase + "/" + slnName).WriteFile(filestr))
 		 throw std::runtime_error("Failed to write file:" + slnName);
 }
 
@@ -98,13 +95,16 @@ int main(int argc, char* argv[])
 {
 	if (argc < 4)
 	{
-		std::cout << "usage: <msbuild directory> <ninja binary> <cmake binary>\n";
+		std::cout << "usage: <msbuild directory> <ninja binary> <cmake binary> [dry] \n";
 		return 1;
 	}
 	try {
 		const std::string rootDir = argv[1];
 		const std::string ninjaExe = argv[2];
 		const std::string cmakeExe = argv[3];
+		const bool dryRun = argc >= 5 && argv[4] == std::string("dry");
+		if (dryRun)
+			std::cout << "Dry run.\n";
 
 		StringVector slnFiles;
 		for(const fs::directory_entry& it : fs::directory_iterator(rootDir))
@@ -117,7 +117,7 @@ int main(int argc, char* argv[])
 			throw std::invalid_argument("directory should contain exactly one sln file");
 
 		VcProjectList vcprojs;
-		parseSln(rootDir,  slnFiles[0], vcprojs);
+		parseSln(rootDir,  slnFiles[0], vcprojs, dryRun);
 
 		std::ostringstream ninjaBuildContents;
 		ninjaBuildContents << "ninja_required_version = 1.5\n";
@@ -151,7 +151,7 @@ int main(int argc, char* argv[])
 			p.ParseFilters();
 			p.ParseConfigs();
 			p.TransformConfigs({"Debug", "Release"});
-			p.ConvertToMakefile(ninjaExe);
+			p.ConvertToMakefile(ninjaExe, dryRun);
 		}
 		for (auto & p : vcprojs)
 		{
@@ -165,10 +165,7 @@ int main(int argc, char* argv[])
 		std::string buildNinja = ninjaBuildContents.str();
 		std::cout << "\nNinja file:\n" << buildNinja;
 
-		ByteArrayHolder data;
-		data.resize(buildNinja.size());
-		memcpy(data.data(), buildNinja.c_str(), buildNinja.size());
-		FileInfo(rootDir + "/build.ninja").WriteFile(data, false);
+		FileInfo(rootDir + "/build.ninja").WriteFile(buildNinja, false);
 
 	} catch(std::exception & e) {
 		std::cout << e.what() << std::endl;

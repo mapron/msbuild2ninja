@@ -54,10 +54,10 @@ public:
 	std::string GetPlatformShortName() const;
 
 	/// Read whole file into buffer
-	bool ReadFile(ByteArrayHolder & data);
+	bool ReadFile(std::string & data);
 
 	/// Write buffer to file
-	bool WriteFile(const ByteArrayHolder & data, bool createTmpCopy = true);
+	bool WriteFile(const std::string & data, bool createTmpCopy = true);
 
 	/// Check existence of file on disk.
 	bool Exists();

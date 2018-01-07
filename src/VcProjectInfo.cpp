@@ -38,12 +38,10 @@ StringVector strToList(const std::string & val, char sep = ';')
 
 void VcProjectInfo::ParseFilters()
 {
-	ByteArrayHolder data;
 	const std::string filtersFile = baseDir + "/" + fileName + ".filters";
-	if (!FileInfo(filtersFile).ReadFile(data))
+	std::string filestr;
+	if (!FileInfo(filtersFile).ReadFile(filestr))
 		throw std::runtime_error("Failed to read .filters file");
-
-	std::string filestr((const char*)data.data(), data.size());
 
 	std::string incl = "<ClCompile Include=\"";
 
@@ -58,17 +56,12 @@ void VcProjectInfo::ParseFilters()
 
 		pos = filestr.find(incl, posEnd + 1);
 	}
-
-	//std::cout << "ParseFilters: " << targetName << std::endl;
 }
 
 void VcProjectInfo::ParseConfigs()
 {
-	ByteArrayHolder data;
-	if (!FileInfo(baseDir + "/" + fileName).ReadFile(data))
+	if (!FileInfo(baseDir + "/" + fileName).ReadFile(projectFileData))
 		throw std::runtime_error("Failed to read project file");
-
-	projectFileData = std::string((const char*)data.data(), data.size());
 
 	{
 		std::smatch res;
@@ -146,8 +139,8 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations)
 		pc.defines = config.clVariables.GetListValue("PreprocessorDefinitions");
 		pc.link = config.linkVariables.GetListValue("AdditionalDependencies");
 		pc.targetName = config.projectVariables.GetStrValue("TargetName");
-		pc.targetOutputName = pc.targetName + config.projectVariables.GetStrValue("TargetExt");
-		pc.targetOutputNameWithDir = config.configuration + "\\" + pc.targetOutputName;
+		pc.targetMainExt = config.projectVariables.GetStrValue("TargetExt");
+		pc.targetImportExt = type == Type::Dynamic ? ".lib" : "";
 
 		auto flagsProcess = [&pc, &config](const std::string & key, const std::map<std::string, std::string> & mapping) {
 			std::string t = config.clVariables.GetMappedValue(key, mapping);
@@ -199,7 +192,7 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations)
 	//std::cout << "TransformConfigs: " << targetName << std::endl;
 }
 
-void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin)
+void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, bool dryRun)
 {
 	if (type == Type::Unknown)
 		return;
@@ -217,8 +210,8 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin)
 	for (const ParsedConfig & config : parsedConfigs)
 	{
 		os << "<PropertyGroup Condition=\"'$(Configuration)|$(Platform)'=='" << config.name << "|" << config.platform << "'\">\n"
-		   << "<NMakeBuildCommandLine>\""   << ninjaBin << "\" " << config.targetOutputNameWithDir << "</NMakeBuildCommandLine>\n"
-		   << "<NMakeReBuildCommandLine>\"" << ninjaBin << "\" -t clean &amp;&amp; \"" << ninjaBin <<"\" " << config.targetOutputNameWithDir << "</NMakeReBuildCommandLine>\n"
+		   << "<NMakeBuildCommandLine>\""   << ninjaBin << "\" " << config.getOutputNameWithDir() << "</NMakeBuildCommandLine>\n"
+		   << "<NMakeReBuildCommandLine>\"" << ninjaBin << "\" -t clean &amp;&amp; \"" << ninjaBin <<"\" " << config.getOutputNameWithDir() << "</NMakeReBuildCommandLine>\n"
 		   << "<NMakeCleanCommandLine>\""   << ninjaBin << "\" -t clean</NMakeCleanCommandLine>\n"
 		   << "<NMakePreprocessorDefinitions>" << joinVector(config.defines, ';') << "</NMakePreprocessorDefinitions>\n"
 		   << "<NMakeIncludeSearchPath>"       << joinVector(config.includes, ';') << "</NMakeIncludeSearchPath>\n"
@@ -289,10 +282,7 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin)
 			customCommands.push_back(rule);
 	}
 
-	ByteArrayHolder data;
-	data.resize(projectFileData.size());
-	memcpy(data.data(), projectFileData.c_str(), projectFileData.size());
-	if (!FileInfo(baseDir + "/" + fileName).WriteFile(data))
+	if (!dryRun && !FileInfo(baseDir + "/" + fileName).WriteFile(projectFileData))
 		 throw std::runtime_error("Failed to write file:" + fileName);
 }
 
@@ -304,7 +294,7 @@ void VcProjectInfo::CalculateDependentTargets(const std::vector<VcProjectInfo> &
 		if (it != allTargets.cend())
 		{
 			if (!it->clCompileFiles.empty())
-				dependentTargets.push_back(it->targetName);
+				dependentTargets.push_back(&*it);
 		}
 	}
 }
@@ -335,7 +325,7 @@ std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir) const
 			  ;
 		orderDeps += " " + ninjaEscape(customCmd.output);
 	}
-
+	size_t configIndex = 0;
 	for (const auto & config : this->parsedConfigs)
 	{
 		std::string depObjs = "";
@@ -360,10 +350,23 @@ std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir) const
 			ss << "  INCLUDES = " << joinVector(cmdIncludes) << "\n";
 			ss << "  TARGET_COMPILE_PDB = " << targetName << ".dir\\" << config.name << "\\" << targetName << ".pdb\n";
 		}
-		//std::string libTargetName = config.name + "_" + targetName;
-		std::string depLibs;
-		for (const auto & dep : this->dependentTargets)
-			depLibs += " " + config.name + "\\" + dep + ".lib";
+		std::string depLink, depsTargets;
+		for (const VcProjectInfo * dep : this->dependentTargets)
+		{
+			const auto & depConfig = dep->parsedConfigs[configIndex];
+			assert(depConfig.name == config.name);
+			if (dep->type == Type::Dynamic)
+			{
+				depLink     += " " + depConfig.getImportNameWithDir();
+				depsTargets += " " + depConfig.getOutputNameWithDir();
+			}
+			else if (dep->type == Type::Static)
+			{
+				const auto lib = depConfig.getOutputNameWithDir();
+				depsTargets += " " + lib;
+				depLink     += " " + lib;
+			}
+		}
 
 		std::string linkLibraries = joinVector(config.link);
 		//ss << "\nbuild " << libTargetName << ": phony " << depObjs << "\n";
@@ -371,9 +374,9 @@ std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir) const
 		if (type == Type::App || type == Type::Dynamic)
 		{
 			if (type == Type::App)
-				ss << "\nbuild " << config.targetOutputNameWithDir << ": CXX_EXECUTABLE_LINKER " << depObjs << " | " << depLibs << " || " << depLibs << orderDeps << "\n";
+				ss << "\nbuild " << config.getOutputNameWithDir() << ": CXX_EXECUTABLE_LINKER " << depObjs << " | " << depLink << " || " << depsTargets << orderDeps << "\n";
 			else
-				ss << "\nbuild " << config.name << "\\" << config.targetName << ".lib " << config.targetOutputNameWithDir << ": CXX_SHARED_LIBRARY_LINKER " << depObjs << " | " << depLibs << " || " << depLibs << orderDeps << "\n";
+				ss << "\nbuild " << config.getImportNameWithDir() << " " << config.getOutputNameWithDir() << ": CXX_SHARED_LIBRARY_LINKER " << depObjs << " | " << depLink << " || " << depsTargets << orderDeps << "\n";
 
 			ss << "  FLAGS = \n"
 			"  LINK_FLAGS = " << linkFlags << "\n"
@@ -382,24 +385,25 @@ std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir) const
 			"  POST_BUILD = cd .\n"
 			"  PRE_LINK = cd .\n"
 			"  TARGET_COMPILE_PDB = " << targetName << ".dir\\" << config.name << "\\ \n"
-			"  TARGET_FILE = " << config.targetOutputNameWithDir << "\n"
-			"  TARGET_IMPLIB = " << config.name << "\\" << config.targetName << ".lib\n"
+			"  TARGET_FILE = " << config.getOutputNameWithDir() << "\n"
+			"  TARGET_IMPLIB = " << config.getImportNameWithDir() << "\n"
 			"  TARGET_PDB = " << config.name << "\\" << config.targetName << ".pdb\n"
 				  ;
 		}
 		else if (type == Type::Static)
 		{
-			ss << "\nbuild " << config.targetOutputNameWithDir << ": CXX_STATIC_LIBRARY_LINKER " << depObjs << " || " << orderDeps << "\n"
+			ss << "\nbuild " << config.getOutputNameWithDir() << ": CXX_STATIC_LIBRARY_LINKER " << depObjs << " || " << depsTargets << orderDeps << "\n"
 		   "  LANGUAGE_COMPILE_FLAGS =\n"
 		   "  LINK_FLAGS = " << linkFlags << "\n"
 		   "  OBJECT_DIR = " << targetName << ".dir\\" << config.name << "\n"
 		   "  POST_BUILD = cd .\n"
 		   "  PRE_LINK = cd .\n"
 		   "  TARGET_COMPILE_PDB = " << targetName << ".dir\\" << config.name << "\\" << config.targetName << ".pdb\n"
-		   "  TARGET_FILE = " << config.targetOutputNameWithDir << "\n"
+		   "  TARGET_FILE = " << config.getOutputNameWithDir() << "\n"
 		   "  TARGET_PDB = " << config.name << "\\" << config.targetName << ".pdb\n"
 				  ;
 		}
+		configIndex++;
 	}
 
 

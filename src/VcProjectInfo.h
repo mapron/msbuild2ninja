@@ -32,7 +32,7 @@ struct VcProjectInfo
 	std::string GUID;
 	std::string projectFileData;
 	StringVector dependentGuids;
-	StringVector dependentTargets;
+	std::vector<const VcProjectInfo*> dependentTargets;
 	StringVector clCompileFiles;
 	struct Config {
 		std::string configuration;
@@ -48,14 +48,18 @@ struct VcProjectInfo
 		std::string name;
 		std::string platform;
 		std::string targetName;
-		std::string targetOutputName;
-		std::string targetOutputNameWithDir;
+		std::string targetMainExt;
+		std::string targetImportExt;
 
 		StringVector includes;
 		StringVector defines;
 		StringVector flags;
 		StringVector link;
 		StringVector linkFlags;
+		std::string getOutputName() const { return targetName + targetMainExt;}
+		std::string getOutputNameWithDir() const { return name + "\\" + getOutputName();}
+		std::string getImportName() const { return targetImportExt.empty() ? "" : targetName + targetImportExt;}
+		std::string getImportNameWithDir() const { return targetImportExt.empty() ? "" : name + "\\" + getImportName();}
 	};
 	std::vector<ParsedConfig> parsedConfigs;
 	struct CustomBuild
@@ -73,7 +77,7 @@ struct VcProjectInfo
 	void ParseFilters();
 	void ParseConfigs();
 	void TransformConfigs(const StringVector & configurations);
-	void ConvertToMakefile(const std::string & ninjaBin);
+	void ConvertToMakefile(const std::string & ninjaBin, bool dryRun);
 	void CalculateDependentTargets(const std::vector<VcProjectInfo> & allTargets);
 	std::string GetNinjaRules(const std::string &rootDir) const;
 };

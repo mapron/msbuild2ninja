@@ -156,19 +156,17 @@ std::string FileInfo::GetPlatformShortName() const
 #endif
 }
 
-bool FileInfo::ReadFile(ByteArrayHolder &data)
+bool FileInfo::ReadFile(std::string &data)
 {
 	FILE * f = fopen(GetPath().c_str(), "rb");
 	if (!f)
 		return false;
 
-	ByteArray& dest = data.ref();
-
 	unsigned char in[CHUNK];
 	do {
 		auto avail_in = fread(in, 1, CHUNK, f);
 		if (!avail_in || ferror(f)) break;
-		dest.insert(dest.end(), in, in + avail_in);
+		data.insert(data.end(), in, in + avail_in);
 		if (feof(f)) break;
 
 	} while (true);
@@ -177,7 +175,7 @@ bool FileInfo::ReadFile(ByteArrayHolder &data)
 	return true;
 }
 
-bool FileInfo::WriteFile(const ByteArrayHolder &data, bool createTmpCopy)
+bool FileInfo::WriteFile(const std::string &data, bool createTmpCopy)
 {
 	const std::string originalPath = fs::absolute(m_impl->m_path).u8string();
 	const std::string writePath = createTmpCopy ? originalPath + ".tmp" : originalPath;
@@ -188,7 +186,7 @@ bool FileInfo::WriteFile(const ByteArrayHolder &data, bool createTmpCopy)
 #ifndef _WIN32
 		std::ofstream outFile;
 		outFile.open(writePath, std::ios::binary | std::ios::out);
-		outFile.write((const char*)data.data(), data.size());
+		outFile.write((const char*)data.c_str(), data.size());
 		outFile.close();
 #else
 		auto fileHandle = CreateFileA((LPTSTR) writePath.c_str(), // file name
@@ -207,7 +205,7 @@ bool FileInfo::WriteFile(const ByteArrayHolder &data, bool createTmpCopy)
 		do {
 			auto blockSize = std::min(bytesToWrite, size_t(32 * 1024 * 1024));
 			DWORD bytesWritten;
-			if (!::WriteFile(fileHandle, data.data() + totalWritten, blockSize, &bytesWritten, NULL)) {
+			if (!::WriteFile(fileHandle, data.c_str() + totalWritten, blockSize, &bytesWritten, NULL)) {
 				if (totalWritten == 0) {
 					// Note: Only return error if the first WriteFile failed.
 					throw std::runtime_error("Failed to write data");
