@@ -160,11 +160,14 @@ int main(int argc, char* argv[])
 							  "  command = $COMMAND\n"
 							  "  description = $DESC\n";
 
+		ninjaBuildContents << "rule RC_COMPILER\n"
+							 "  command = rc.exe $DEFINES $INCLUDES $FLAGS /fo$out $in\n"
+							 "  description = Building RC object $out\n";
+
 		for (auto & p : vcprojs)
 		{
-			p.ParseFilters();
 			p.ParseConfigs();
-			p.TransformConfigs({"Debug", "Release"});
+			p.TransformConfigs({"Debug", "Release"}, rootDir);
 			p.ConvertToMakefile(ninjaExe, dryRun);
 		}
 		std::set<std::string> existingRules;

@@ -36,32 +36,31 @@ StringVector strToList(const std::string & val, char sep = ';')
 
 }
 
-void VcProjectInfo::ParseFilters()
-{
-	const std::string filtersFile = baseDir + "/" + fileName + ".filters";
-	std::string filestr;
-	if (!FileInfo(filtersFile).ReadFile(filestr))
-		throw std::runtime_error("Failed to read .filters file");
-
-	std::string incl = "<ClCompile Include=\"";
-
-	size_t pos = filestr.find(incl, 0);
-	while (pos != std::string::npos)
-	{
-		size_t posStart = pos + incl.size();
-		size_t posEnd = filestr.find('"', posStart + 1);
-		assert(posEnd != std::string::npos);
-		const auto f = filestr.substr(posStart, posEnd - posStart);
-		clCompileFiles.push_back(f);
-
-		pos = filestr.find(incl, posEnd + 1);
-	}
-}
 
 void VcProjectInfo::ParseConfigs()
 {
 	if (!FileInfo(baseDir + "/" + fileName).ReadFile(projectFileData))
 		throw std::runtime_error("Failed to read project file");
+
+	{
+		auto parseIncludes = [this](StringVector & result, const std::string & tag)
+		{
+			const std::string incl = "<" + tag + " Include=\"";
+			size_t pos = projectFileData.find(incl, 0);
+			while (pos != std::string::npos)
+			{
+				size_t posStart = pos + incl.size();
+				size_t posEnd = projectFileData.find('"', posStart + 1);
+				assert(posEnd != std::string::npos);
+				const auto f = projectFileData.substr(posStart, posEnd - posStart);
+				result.push_back(f);
+
+				pos = projectFileData.find(incl, posEnd + 1);
+			}
+		};
+		parseIncludes(clCompileFiles, "ClCompile");
+		parseIncludes(rcCompileFiles, "ResourceCompile");
+	}
 
 	{
 		std::smatch res;
@@ -125,7 +124,7 @@ void VcProjectInfo::ParseConfigs()
 	//std::cout << "ParseConfigs: " << targetName << std::endl;
 }
 
-void VcProjectInfo::TransformConfigs(const StringVector & configurations)
+void VcProjectInfo::TransformConfigs(const StringVector & configurations, const std::string & rootDir)
 {
 	for (const Config & config : configs)
 	{
@@ -141,6 +140,10 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations)
 		pc.targetName = config.projectVariables.GetStrValue("TargetName");
 		pc.targetMainExt = config.projectVariables.GetStrValue("TargetExt");
 		pc.outDir = config.projectVariables.GetStrValue("OutDir");
+		pc.intDir = config.projectVariables.GetStrValue("IntDir");
+		if (pc.outDir.find(rootDir) == 0)
+			pc.outDir = pc.outDir.substr( rootDir.size() + 1 );
+
 		pc.targetImportExt = type == Type::Dynamic ? ".lib" : "";
 
 		auto flagsProcess = [&pc, &config](const std::string & key, const std::map<std::string, std::string> & mapping) {
@@ -221,11 +224,11 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, bool dryRun)
 	for (const ParsedConfig & config : parsedConfigs)
 	{
 		os << "<PropertyGroup Condition=\"'$(Configuration)|$(Platform)'=='" << config.name << "|" << config.platform << "'\">\n"
-		   << "<NMakeBuildCommandLine>\""   << ninjaBin << "\" " << config.getOutputNameWithDir() << "</NMakeBuildCommandLine>\n"
-		   << "<NMakeReBuildCommandLine>\"" << ninjaBin << "\" -t clean &amp;&amp; \"" << ninjaBin <<"\" " << config.getOutputNameWithDir() << "</NMakeReBuildCommandLine>\n"
-		   << "<NMakeCleanCommandLine>\""   << ninjaBin << "\" -t clean</NMakeCleanCommandLine>\n"
-		   << "<NMakePreprocessorDefinitions>" << joinVector(config.defines, ';') << "</NMakePreprocessorDefinitions>\n"
-		   << "<NMakeIncludeSearchPath>"       << joinVector(config.includes, ';') << "</NMakeIncludeSearchPath>\n"
+		   << "  <NMakeBuildCommandLine>\""   << ninjaBin << "\" " << config.getOutputNameWithDir() << "</NMakeBuildCommandLine>\n"
+		   << "  <NMakeReBuildCommandLine>\"" << ninjaBin << "\" -t clean &amp;&amp; \"" << ninjaBin <<"\" " << config.getOutputNameWithDir() << "</NMakeReBuildCommandLine>\n"
+		   << "  <NMakeCleanCommandLine>\""   << ninjaBin << "\" -t clean</NMakeCleanCommandLine>\n"
+		   << "  <NMakePreprocessorDefinitions>" << joinVector(config.defines, ';') << "</NMakePreprocessorDefinitions>\n"
+		   << "  <NMakeIncludeSearchPath>"       << joinVector(config.includes, ';') << "</NMakeIncludeSearchPath>\n"
 		   << "</PropertyGroup>\n"
 			  ;
 	}
@@ -277,6 +280,7 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, bool dryRun)
 		auto startPos = projectFileData.find("<CustomBuild ");
 		if (startPos == std::string::npos)
 			break;
+
 		const std::string endCustomBuild = "</CustomBuild>";
 		auto endPos = projectFileData.find(endCustomBuild, startPos);
 		const std::string customBuildRule = projectFileData.substr(startPos, endPos-startPos);
@@ -304,7 +308,7 @@ void VcProjectInfo::CalculateDependentTargets(const std::vector<VcProjectInfo> &
 		auto it = std::find_if(allTargets.cbegin(), allTargets.cend(), [depGuid](const auto & info){ return info.GUID == depGuid;});
 		if (it != allTargets.cend())
 		{
-			if (!it->clCompileFiles.empty())
+			if (!it->clCompileFiles.empty()) // @todo: maybe type check?
 				dependentTargets.push_back(&*it);
 		}
 	}
@@ -313,7 +317,7 @@ void VcProjectInfo::CalculateDependentTargets(const std::vector<VcProjectInfo> &
 std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir, std::set<std::string> & existingRules) const
 {
 	std::ostringstream ss;
-	std::regex re2(R"rx(\.cpp$)rx");
+
 	if (type == Type::Unknown)
 		return "";
 
@@ -324,6 +328,21 @@ std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir, std::set<s
 			value = value.substr( rootDir.size() + 1);
 		}
 		return std::regex_replace(value, std::regex("[:]"), "$:");
+	};
+	std::set<std::string> existingObjNames;
+	auto getObjectName = [&existingObjNames](const std::string & filename, const std::string & intDir)
+	{
+		static std::regex re("\\.(cpp|rc)$");
+		std::string objName = filename.substr(filename.rfind("\\") + 1);
+		objName =  std::regex_replace(objName, re, ".obj");
+		std::string fullObjName = intDir + objName;
+		int prefix = 1;
+		while (existingObjNames.find(fullObjName) != existingObjNames.end())
+		{
+			fullObjName = intDir + std::to_string(prefix++) + "_" + objName;
+		}
+		existingObjNames.insert(fullObjName);
+		return fullObjName;
 	};
 	std::string orderDeps;
 	for (const auto & customCmd : this->customCommands)
@@ -344,33 +363,33 @@ std::string VcProjectInfo::GetNinjaRules(const std::string & rootDir, std::set<s
 	for (const auto & config : this->parsedConfigs)
 	{
 		std::string depObjs = "";
-		std::set<std::string> existingObjNames;
+
+		StringVector cmdDefines;
+		for (const auto & def : config.defines)
+			cmdDefines.push_back("/D" + def);
+		StringVector cmdIncludes;
+		for (const auto & inc : config.includes)
+			cmdIncludes.push_back("/I" + inc);
+		const std::string preprocessor =
+			   "  DEFINES = " + joinVector(cmdDefines) + "\n"
+			   "  INCLUDES = " + joinVector(cmdIncludes) +"\n";
 		for (const auto & filename : this->clCompileFiles)
 		{
-			StringVector cmdDefines;
-			for (const auto & def : config.defines)
-				cmdDefines.push_back("/D" + def);
-			StringVector cmdIncludes;
-			for (const auto & inc : config.includes)
-				cmdIncludes.push_back("/I" + inc);
-
-			std::string objName = filename.substr(filename.rfind("\\") + 1);
-			objName =  std::regex_replace(objName, re2, ".obj");
-			std::string fullObjName = targetName + ".dir\\" + config.name + "\\" + objName;
-			int prefix = 1;
-			while (existingObjNames.find(fullObjName) != existingObjNames.end())
-			{
-				fullObjName = targetName + ".dir\\" + config.name + "\\" + std::to_string(prefix++) + "_" + objName;
-			}
-			existingObjNames.insert(fullObjName);
+			auto fullObjName = getObjectName(filename, config.intDir);
 			depObjs += " " + fullObjName;
 
-			ss << "build " << fullObjName << ": CXX_COMPILER " << ninjaEscape(filename) << " || order_only_" << this->targetName  << "\n"
-			  << "  FLAGS = " << joinVector(config.flags) << "\n";
+			ss << "build " << fullObjName << ": CXX_COMPILER " << ninjaEscape(filename) << " || order_only_" << this->targetName  << "\n";
+			ss << "  FLAGS = " + joinVector(config.flags) + "\n"
+				<< preprocessor;
+			ss << "  TARGET_COMPILE_PDB = " << config.intDir << targetName << ".pdb\n";
+		}
+		for (const auto & filename : this->rcCompileFiles)
+		{
+			auto fullObjName = getObjectName(filename, config.intDir);
+			depObjs += " " + fullObjName;
 
-			ss << "  DEFINES = " << joinVector(cmdDefines) << "\n";
-			ss << "  INCLUDES = " << joinVector(cmdIncludes) << "\n";
-			ss << "  TARGET_COMPILE_PDB = " << targetName << ".dir\\" << config.name << "\\" << targetName << ".pdb\n";
+			ss << "build " << fullObjName << ": RC_COMPILER " << ninjaEscape(filename) << " || order_only_" << this->targetName  << "\n";
+			ss << preprocessor;
 		}
 		std::string depLink, depsTargets = " order_only_" + this->targetName;
 		for (const VcProjectInfo * dep : this->dependentTargets)

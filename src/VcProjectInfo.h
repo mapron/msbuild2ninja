@@ -35,6 +35,7 @@ struct VcProjectInfo
 	StringVector dependentGuids;
 	std::vector<const VcProjectInfo*> dependentTargets;
 	StringVector clCompileFiles;
+	StringVector rcCompileFiles;
 	struct Config {
 		std::string configuration;
 		std::string platform;
@@ -50,6 +51,7 @@ struct VcProjectInfo
 		std::string platform;
 
 		std::string outDir;
+		std::string intDir;
 		std::string targetName;
 		std::string targetMainExt;
 		std::string targetImportExt;
@@ -77,9 +79,8 @@ struct VcProjectInfo
 	enum class Type { Unknown, Static, Dynamic, App };
 	Type type = Type::Unknown;
 
-	void ParseFilters();
 	void ParseConfigs();
-	void TransformConfigs(const StringVector & configurations);
+	void TransformConfigs(const StringVector & configurations, const std::string &rootDir);
 	void ConvertToMakefile(const std::string & ninjaBin, bool dryRun);
 	void CalculateDependentTargets(const std::vector<VcProjectInfo> & allTargets);
 	std::string GetNinjaRules(const std::string &rootDir, std::set<std::string> &existingRules) const;
