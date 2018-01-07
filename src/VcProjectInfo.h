@@ -1,5 +1,6 @@
 #pragma once
 #include <map>
+#include <set>
 
 #include "CommonTypes.h"
 
@@ -47,6 +48,8 @@ struct VcProjectInfo
 	struct ParsedConfig {
 		std::string name;
 		std::string platform;
+
+		std::string outDir;
 		std::string targetName;
 		std::string targetMainExt;
 		std::string targetImportExt;
@@ -57,9 +60,9 @@ struct VcProjectInfo
 		StringVector link;
 		StringVector linkFlags;
 		std::string getOutputName() const { return targetName + targetMainExt;}
-		std::string getOutputNameWithDir() const { return name + "\\" + getOutputName();}
+		std::string getOutputNameWithDir() const { return outDir + getOutputName();}
 		std::string getImportName() const { return targetImportExt.empty() ? "" : targetName + targetImportExt;}
-		std::string getImportNameWithDir() const { return targetImportExt.empty() ? "" : name + "\\" + getImportName();}
+		std::string getImportNameWithDir() const { return targetImportExt.empty() ? "" : outDir + getImportName();}
 	};
 	std::vector<ParsedConfig> parsedConfigs;
 	struct CustomBuild
@@ -79,6 +82,6 @@ struct VcProjectInfo
 	void TransformConfigs(const StringVector & configurations);
 	void ConvertToMakefile(const std::string & ninjaBin, bool dryRun);
 	void CalculateDependentTargets(const std::vector<VcProjectInfo> & allTargets);
-	std::string GetNinjaRules(const std::string &rootDir) const;
+	std::string GetNinjaRules(const std::string &rootDir, std::set<std::string> &existingRules) const;
 };
 using VcProjectList = std::vector<VcProjectInfo>;

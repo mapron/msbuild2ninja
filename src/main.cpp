@@ -137,8 +137,22 @@ int main(int argc, char* argv[])
 			"  description = Linking CXX shared library $TARGET_FILE\n"
 			"  restat = 1\n";
 
+		ninjaBuildContents << "rule CXX_SHARED_LIBRARY_LINKER_RSP\n"
+			"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_dll --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo @$RSP_FILE  /out:$TARGET_FILE /implib:$TARGET_IMPLIB /pdb:$TARGET_PDB /dll /version:0.0 $LINK_FLAGS  && $POST_BUILD\"\n"
+			"  description = Linking CXX shared library $TARGET_FILE\n"
+			"  rspfile = $RSP_FILE\n"
+			"  rspfile_content = $in_newline $LINK_PATH $LINK_LIBRARIES \n"
+			"  restat = 1\n";
+
 		ninjaBuildContents << "rule CXX_EXECUTABLE_LINKER\n"
-			"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:$TARGET_FILE /implib:$TARGET_IMPLIB /pdb:$TARGET_PDB /version:0.0  $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES && $POST_BUILD\"\n"
+			"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:$TARGET_FILE /pdb:$TARGET_PDB /version:0.0  $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES && $POST_BUILD\"\n"
+			"  description = Linking CXX executable $TARGET_FILE\n"
+			"  restat = $RESTAT\n";
+
+		ninjaBuildContents << "rule CXX_EXECUTABLE_LINKER_RSP\n"
+			"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo @$RSP_FILE  /out:$TARGET_FILE /pdb:$TARGET_PDB /version:0.0  $LINK_FLAGS && $POST_BUILD\"\n"
+			"  rspfile = $RSP_FILE\n"
+			"  rspfile_content = $in_newline $LINK_PATH $LINK_LIBRARIES \n"
 			"  description = Linking CXX executable $TARGET_FILE\n"
 			"  restat = $RESTAT\n";
 
@@ -153,10 +167,11 @@ int main(int argc, char* argv[])
 			p.TransformConfigs({"Debug", "Release"});
 			p.ConvertToMakefile(ninjaExe, dryRun);
 		}
+		std::set<std::string> existingRules;
 		for (auto & p : vcprojs)
 		{
 			p.CalculateDependentTargets(vcprojs);
-			ninjaBuildContents << p.GetNinjaRules(rootDir);
+			ninjaBuildContents << p.GetNinjaRules(rootDir, existingRules);
 		}
 		//std::cout << "Parsed projects:\n";
 		//for (const auto & p : vcprojs)
