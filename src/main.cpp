@@ -11,6 +11,7 @@ using fserr = std::error_code;
 
 #include "FileUtils.h"
 #include "VcProjectInfo.h"
+#include "CommandLine.h"
 
 
 void parseSln(const std::string & slnBase, const std::string & slnName, VcProjectList & vcprojs, const bool dryRun)
@@ -54,58 +55,33 @@ void parseSln(const std::string & slnBase, const std::string & slnName, VcProjec
 
 int main(int argc, char* argv[])
 {
-	if (argc < 4)
-	{
-		std::cout << "usage: <msbuild directory> <ninja binary> <cmake binary> [dry] \n";
-		return 1;
-	}
 	try {
-		const std::string rootDir = argv[1];
-		const std::string ninjaExe = argv[2];
-		const std::string cmakeExe = argv[3];
-		const bool dryRun = argc >= 5 && argv[4] == std::string("dry");
-		if (dryRun)
-			std::cout << "Dry run.\n";
-
-		StringVector slnFiles;
-		for(const fs::directory_entry& it : fs::directory_iterator(rootDir))
-		{
-			 const fs::path& p = it.path();
-			 if (fs::is_regular_file(p) && p.extension() == ".sln")
-				slnFiles.push_back( p.filename().u8string() );
-		}
-		if (slnFiles.size() != 1)
-			throw std::invalid_argument("directory should contain exactly one sln file");
+		CommandLine cmd(argc, argv);
 
 		VcProjectList vcprojs;
-		parseSln(rootDir,  slnFiles[0], vcprojs, dryRun);
+		parseSln(cmd.rootDir,  cmd.slnFile, vcprojs, cmd.dryRun);
 
 		for (auto & p : vcprojs)
 		{
-			StringVector customDeps;
-			if (p.targetName =="InstallProduct")
-				customDeps = StringVector{"Release_InstallBuildFixupRelease"}; // @todo: @fixme:
-
 			p.ReadVcProj();
 			p.ParseConfigs();
-			p.TransformConfigs({"Release", "Debug"}, rootDir); // order is crucial - Release rules more prioritized on conflict.
-			p.ConvertToMakefile(ninjaExe, customDeps);
-			if (!dryRun)
+			p.TransformConfigs(cmd.configs, cmd.rootDir);
+			p.ConvertToMakefile(cmd.ninjaExe, cmd.additionalDeps[p.targetName]);
+			if (!cmd.dryRun)
 				p.WriteVcProj();
 		}
-		std::set<std::string> existingRules;
-		NinjaWriter ninjaWriter(rootDir, cmakeExe);
-		std::ostringstream targetsRules;
+
+		NinjaWriter ninjaWriter(cmd.rootDir, cmd.cmakeExe);
 		for (auto & p : vcprojs)
 		{
 			p.CalculateDependentTargets(vcprojs);
-			targetsRules << p.GetNinjaRules(existingRules, ninjaWriter);
+			ninjaWriter.GenerateNinjaRules(p);
 		}
 		//std::cout << "Parsed projects:\n";
 		//for (const auto & p : vcprojs)
 		//	std::cout << p;
 
-		ninjaWriter.WriteFile(targetsRules.str(), /*verbose=*/true);
+		ninjaWriter.WriteFile(cmd.verbose);
 
 	} catch(std::exception & e) {
 		std::cout << e.what() << std::endl;

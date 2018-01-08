@@ -4,11 +4,16 @@
 
 #include <map>
 #include <sstream>
+#include <set>
+
+struct VcProjectInfo;
 
 class NinjaWriter
 {
 	std::map<std::string, std::string> idents;
 	std::ostringstream identsDecl;
+	std::ostringstream targetRules;
+	std::set<std::string> existingRules;
 	int maxIdent = 0;
 	const std::string buildRoot, cmakeExe;
 public:
@@ -16,6 +21,7 @@ public:
 	std::string Escape(std::string value);
 	std::string Escape(const StringVector & values);
 
-	void WriteFile(const std::string & targetRules, bool verbose) const;
+	void WriteFile(bool verbose) const;
 
+	void GenerateNinjaRules(const VcProjectInfo & project);
 };

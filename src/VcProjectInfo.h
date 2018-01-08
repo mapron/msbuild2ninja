@@ -71,7 +71,6 @@ struct VcProjectInfo
 	void TransformConfigs(const StringVector & configurations, const std::string &rootDir);
 	void ConvertToMakefile(const std::string & ninjaBin, const StringVector & customDeps);
 	void CalculateDependentTargets(const std::vector<VcProjectInfo> & allTargets);
-	std::string GetNinjaRules(std::set<std::string> &existingRules, NinjaWriter & ninjaWriter) const;
 };
 using VcProjectList = std::vector<VcProjectInfo>;
 

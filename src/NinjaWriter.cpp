@@ -1,8 +1,10 @@
 #include "NinjaWriter.h"
 #include "FileUtils.h"
+#include "VcProjectInfo.h"
 
 #include <regex>
 #include <iostream>
+#include <cassert>
 
 std::string NinjaWriter::Escape(std::string value)
 {
@@ -32,7 +34,7 @@ std::string NinjaWriter::Escape(const StringVector &values)
 	return result;
 }
 
-void NinjaWriter::WriteFile(const std::string &targetRules, bool verbose) const
+void NinjaWriter::WriteFile(bool verbose) const
 {
 	std::ostringstream ninjaHeader;
 	ninjaHeader << "ninja_required_version = 1.5\n";
@@ -81,9 +83,166 @@ void NinjaWriter::WriteFile(const std::string &targetRules, bool verbose) const
 
 
 
-	const std::string buildNinja = ninjaHeader.str() + identsDecl.str() + targetRules;
+	const std::string buildNinja = ninjaHeader.str() + identsDecl.str() + targetRules.str();
 	if (verbose)
 		std::cout << "\nNinja file:\n" << buildNinja;
 
 	FileInfo(buildRoot + "/build.ninja").WriteFile(buildNinja, false);
+}
+
+void NinjaWriter::GenerateNinjaRules(const VcProjectInfo &project)
+{
+	std::ostringstream ss;
+	using Type = VcProjectInfo::Type;
+	const auto & type = project.type;
+	if (type == Type::Unknown)
+		return;
+
+	std::set<std::string> existingObjNames;
+	auto getObjectName = [&existingObjNames](const std::string & filename, const std::string & intDir)
+	{
+		static std::regex re("\\.(cpp|rc)$");
+		std::string objName = filename.substr(filename.rfind("\\") + 1);
+		objName =  std::regex_replace(objName, re, ".obj");
+		std::string fullObjName = intDir + objName;
+		int prefix = 1;
+		while (existingObjNames.find(fullObjName) != existingObjNames.end())
+		{
+			fullObjName = intDir + std::to_string(prefix++) + "_" + objName;
+		}
+		existingObjNames.insert(fullObjName);
+		return fullObjName;
+	};
+
+	size_t configIndex = 0;
+	for (const auto & config : project.parsedConfigs)
+	{
+		std::string orderOnlyTarget;
+		std::string orderDeps;
+		for (const auto & customCmd : config.customCommands)
+		{
+			const auto escapedOut = this->Escape(customCmd.output);
+			if (existingRules.find(escapedOut) == existingRules.end())
+			{
+				if (customCmd.command.empty())
+					ss << "\nbuild " << escapedOut << ": phony " << this->Escape(customCmd.deps) <<  "\n";
+				else
+					ss << "\nbuild " << escapedOut << ": CUSTOM_COMMAND " << this->Escape(customCmd.deps) <<  "\n"
+						"  COMMAND = cmd.exe /C \"" << customCmd.command << "\" \n"
+						"  DESC = " << customCmd.message << "\n"
+						"  restat = 1\n"
+						  ;
+			}
+			existingRules.insert(escapedOut);
+			orderDeps += " " + escapedOut;
+		}
+
+		std::string depLink, depsTargets;
+		if (!orderDeps.empty())
+		{
+			orderOnlyTarget = "order_only_" + config.name + "_" + config.targetName;
+			ss << "\nbuild " << orderOnlyTarget << ": phony || " << orderDeps << "\n";
+			depsTargets = " " + orderOnlyTarget;
+		}
+		for (const VcProjectInfo * dep : project.dependentTargets)
+		{
+			const auto & depConfig = dep->parsedConfigs[configIndex];
+			assert(depConfig.name == config.name);
+			if (dep->type == Type::Dynamic)
+			{
+				depLink     += " " + this->Escape(depConfig.getImportNameWithDir());
+				depsTargets += " " + this->Escape(depConfig.getOutputNameWithDir());
+			}
+			else if (dep->type == Type::Static)
+			{
+				const auto lib = this->Escape(depConfig.getOutputNameWithDir());
+				depsTargets += " " + lib;
+				depLink     += " " + lib;
+			}
+			else if (dep->type == Type::App || dep->type == Type::Utility)
+			{
+				depsTargets += " " + this->Escape(depConfig.getOutputNameWithDir());
+			}
+		}
+		if (type == Type::Utility)
+		{
+			ss << "\nbuild " << this->Escape(config.getOutputNameWithDir()) << ": phony || " << depsTargets << "\n";
+
+			continue;
+		}
+
+		std::string depObjs = "";
+
+		StringVector cmdDefines;
+		for (const auto & def : config.defines)
+			cmdDefines.push_back("/D" + def);
+		StringVector cmdIncludes;
+		for (const auto & inc : config.includes)
+			cmdIncludes.push_back("/I" + inc);
+		const std::string preprocessor =
+			   "  DEFINES = " + joinVector(cmdDefines) + "\n"
+			   "  INCLUDES = " + joinVector(cmdIncludes) +"\n";
+		for (const auto & filename : project.clCompileFiles)
+		{
+			auto fullObjName = getObjectName(filename, config.intDir);
+			depObjs += " " + fullObjName;
+
+			ss << "build " << fullObjName << ": CXX_COMPILER " << this->Escape(filename) << " || " << orderOnlyTarget  << "\n";
+			ss << "  FLAGS = " + joinVector(config.flags) + "\n"
+				<< preprocessor;
+			ss << "  TARGET_COMPILE_PDB = " << config.intDir << project.targetName << ".pdb\n";
+		}
+		for (const auto & filename : project.rcCompileFiles)
+		{
+			auto fullObjName = getObjectName(filename, config.intDir);
+			depObjs += " " + fullObjName;
+
+			ss << "build " << fullObjName << ": RC_COMPILER " << this->Escape(filename) << " || " << orderOnlyTarget  << "\n";
+			ss << preprocessor;
+		}
+
+
+		std::string linkLibraries = joinVector(config.link);
+		//ss << "\nbuild " << libTargetName << ": phony " << depObjs << "\n";
+		std::string linkFlags = joinVector(config.linkFlags);
+		if (type == Type::App || type == Type::Dynamic)
+		{
+			const bool useRsp = linkFlags.size() + linkLibraries.size() + depLink.size() + depObjs.size() > 8000; // do not support NT 4
+			const std::string ruleSuffix = useRsp ? "_RSP" : "";
+			if (type == Type::App)
+				ss << "\nbuild " << this->Escape(config.getOutputNameWithDir()) << ": CXX_EXECUTABLE_LINKER" << ruleSuffix << " " << depObjs << " | " << depLink << " || " << depsTargets << "\n";
+			else
+				ss << "\nbuild " << this->Escape(config.getImportNameWithDir()) << " " << this->Escape(config.getOutputNameWithDir()) << ": CXX_SHARED_LIBRARY_LINKER" << ruleSuffix << " " << depObjs << " | " << depLink << " || " << depsTargets << "\n";
+
+			ss << "  FLAGS = \n"
+			"  LINK_FLAGS = " << linkFlags << "\n"
+			"  LINK_LIBRARIES = " << linkLibraries << " " << depLink << "\n"
+			"  OBJECT_DIR = " << project.targetName << ".dir\\" << config.name << "\n"
+			"  POST_BUILD = cd .\n"
+			"  PRE_LINK = cd .\n"
+			"  TARGET_COMPILE_PDB = " << project.targetName << ".dir\\" << config.name << "\\ \n"
+			"  TARGET_FILE = " << this->Escape(config.getOutputNameWithDir()) << "\n"
+			"  TARGET_IMPLIB = " << this->Escape(config.getImportNameWithDir()) << "\n"
+			"  TARGET_PDB = " << this->Escape(config.outDir + config.targetName) << ".pdb\n"
+				  ;
+			if (useRsp)
+				ss << "  RSP_FILE = "<< config.name << "\\" << config.targetName << ".rsp\n";
+		}
+		else if (type == Type::Static)
+		{
+			ss << "\nbuild " << this->Escape(config.getOutputNameWithDir()) << ": CXX_STATIC_LIBRARY_LINKER " << depObjs << " || " << depsTargets << "\n"
+		   "  LANGUAGE_COMPILE_FLAGS =\n"
+		   "  LINK_FLAGS = " << linkFlags << "\n"
+		   "  OBJECT_DIR = " << project.targetName << ".dir\\" << config.name << "\n"
+		   "  POST_BUILD = cd .\n"
+		   "  PRE_LINK = cd .\n"
+		   "  TARGET_COMPILE_PDB = " << project.targetName << ".dir\\" << config.name << "\\" << config.targetName << ".pdb\n"
+		   "  TARGET_FILE = " << this->Escape(config.getOutputNameWithDir()) << "\n"
+		   "  TARGET_PDB = " << config.name << "\\" << config.targetName << ".pdb\n"
+				  ;
+		}
+		configIndex++;
+	}
+
+	targetRules << ss.str();
 }

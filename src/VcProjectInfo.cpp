@@ -197,7 +197,6 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations, const 
 
 		parsedConfigs.push_back(pc);
 	}
-	//std::cout << "TransformConfigs: " << targetName << std::endl;
 }
 
 void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringVector &customDeps)
@@ -245,17 +244,13 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 
 	auto filterCommandScript = [](const std::string & data) -> std::string
 	{
+		static const std::regex re("(if |cd |exit |setlocal|endlocal|:).*", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 		auto lines = strToList(data, '\n');
 		for (const auto & line : lines)
 		{
 			if (line.size() < 4)
 				continue;
-			if (line.find("if ") == 0 // @todo: regexp?
-				|| line.find("cd ") == 0
-				|| line.find("exit ") == 0
-				|| line.find("setlocal") == 0
-				|| line.find("endlocal") == 0
-				|| line[0] == ':')
+			if (std::regex_match(line, re))
 				continue;
 
 			return std::regex_replace(line, std::regex("[\r\n]"), "");
@@ -330,164 +325,6 @@ void VcProjectInfo::CalculateDependentTargets(const std::vector<VcProjectInfo> &
 		}
 	}
 }
-
-std::string VcProjectInfo::GetNinjaRules(std::set<std::string> & existingRules, NinjaWriter & ninjaWriter) const
-{
-	std::ostringstream ss;
-
-	if (type == Type::Unknown)
-		return "";
-
-
-	std::set<std::string> existingObjNames;
-	auto getObjectName = [&existingObjNames](const std::string & filename, const std::string & intDir)
-	{
-		static std::regex re("\\.(cpp|rc)$");
-		std::string objName = filename.substr(filename.rfind("\\") + 1);
-		objName =  std::regex_replace(objName, re, ".obj");
-		std::string fullObjName = intDir + objName;
-		int prefix = 1;
-		while (existingObjNames.find(fullObjName) != existingObjNames.end())
-		{
-			fullObjName = intDir + std::to_string(prefix++) + "_" + objName;
-		}
-		existingObjNames.insert(fullObjName);
-		return fullObjName;
-	};
-
-	size_t configIndex = 0;
-	for (const auto & config : this->parsedConfigs)
-	{
-		std::string orderOnlyTarget;
-		std::string orderDeps;
-		for (const auto & customCmd : config.customCommands)
-		{
-			const auto escapedOut = ninjaWriter.Escape(customCmd.output);
-			if (existingRules.find(escapedOut) == existingRules.end())
-			{
-				if (customCmd.command.empty())
-					ss << "\nbuild " << escapedOut << ": phony " << ninjaWriter.Escape(customCmd.deps) <<  "\n";
-				else
-					ss << "\nbuild " << escapedOut << ": CUSTOM_COMMAND " << ninjaWriter.Escape(customCmd.deps) <<  "\n"
-						"  COMMAND = cmd.exe /C \"" << customCmd.command << "\" \n"
-						"  DESC = " << customCmd.message << "\n"
-						"  restat = 1\n"
-						  ;
-			}
-			existingRules.insert(escapedOut);
-			orderDeps += " " + escapedOut;
-		}
-
-		std::string depLink, depsTargets;
-		if (!orderDeps.empty())
-		{
-			orderOnlyTarget = "order_only_" + config.name + "_" + config.targetName;
-			ss << "\nbuild " << orderOnlyTarget << ": phony || " << orderDeps << "\n";
-			depsTargets = " " + orderOnlyTarget;
-		}
-		for (const VcProjectInfo * dep : this->dependentTargets)
-		{
-			const auto & depConfig = dep->parsedConfigs[configIndex];
-			assert(depConfig.name == config.name);
-			if (dep->type == Type::Dynamic)
-			{
-				depLink     += " " + ninjaWriter.Escape(depConfig.getImportNameWithDir());
-				depsTargets += " " + ninjaWriter.Escape(depConfig.getOutputNameWithDir());
-			}
-			else if (dep->type == Type::Static)
-			{
-				const auto lib = ninjaWriter.Escape(depConfig.getOutputNameWithDir());
-				depsTargets += " " + lib;
-				depLink     += " " + lib;
-			}
-			else if (dep->type == Type::App || dep->type == Type::Utility)
-			{
-				depsTargets += " " + ninjaWriter.Escape(depConfig.getOutputNameWithDir());
-			}
-		}
-		if (type == Type::Utility)
-		{
-			ss << "\nbuild " << ninjaWriter.Escape(config.getOutputNameWithDir()) << ": phony || " << depsTargets << "\n";
-
-			continue;
-		}
-
-		std::string depObjs = "";
-
-		StringVector cmdDefines;
-		for (const auto & def : config.defines)
-			cmdDefines.push_back("/D" + def);
-		StringVector cmdIncludes;
-		for (const auto & inc : config.includes)
-			cmdIncludes.push_back("/I" + inc);
-		const std::string preprocessor =
-			   "  DEFINES = " + joinVector(cmdDefines) + "\n"
-			   "  INCLUDES = " + joinVector(cmdIncludes) +"\n";
-		for (const auto & filename : this->clCompileFiles)
-		{
-			auto fullObjName = getObjectName(filename, config.intDir);
-			depObjs += " " + fullObjName;
-
-			ss << "build " << fullObjName << ": CXX_COMPILER " << ninjaWriter.Escape(filename) << " || " << orderOnlyTarget  << "\n";
-			ss << "  FLAGS = " + joinVector(config.flags) + "\n"
-				<< preprocessor;
-			ss << "  TARGET_COMPILE_PDB = " << config.intDir << targetName << ".pdb\n";
-		}
-		for (const auto & filename : this->rcCompileFiles)
-		{
-			auto fullObjName = getObjectName(filename, config.intDir);
-			depObjs += " " + fullObjName;
-
-			ss << "build " << fullObjName << ": RC_COMPILER " << ninjaWriter.Escape(filename) << " || " << orderOnlyTarget  << "\n";
-			ss << preprocessor;
-		}
-
-
-		std::string linkLibraries = joinVector(config.link);
-		//ss << "\nbuild " << libTargetName << ": phony " << depObjs << "\n";
-		std::string linkFlags = joinVector(config.linkFlags);
-		if (type == Type::App || type == Type::Dynamic)
-		{
-			const bool useRsp = linkFlags.size() + linkLibraries.size() + depLink.size() + depObjs.size() > 8000; // do not support NT 4
-			const std::string ruleSuffix = useRsp ? "_RSP" : "";
-			if (type == Type::App)
-				ss << "\nbuild " << ninjaWriter.Escape(config.getOutputNameWithDir()) << ": CXX_EXECUTABLE_LINKER" << ruleSuffix << " " << depObjs << " | " << depLink << " || " << depsTargets << "\n";
-			else
-				ss << "\nbuild " << ninjaWriter.Escape(config.getImportNameWithDir()) << " " << ninjaWriter.Escape(config.getOutputNameWithDir()) << ": CXX_SHARED_LIBRARY_LINKER" << ruleSuffix << " " << depObjs << " | " << depLink << " || " << depsTargets << "\n";
-
-			ss << "  FLAGS = \n"
-			"  LINK_FLAGS = " << linkFlags << "\n"
-			"  LINK_LIBRARIES = " << linkLibraries << " " << depLink << "\n"
-			"  OBJECT_DIR = " << targetName << ".dir\\" << config.name << "\n"
-			"  POST_BUILD = cd .\n"
-			"  PRE_LINK = cd .\n"
-			"  TARGET_COMPILE_PDB = " << targetName << ".dir\\" << config.name << "\\ \n"
-			"  TARGET_FILE = " << ninjaWriter.Escape(config.getOutputNameWithDir()) << "\n"
-			"  TARGET_IMPLIB = " << ninjaWriter.Escape(config.getImportNameWithDir()) << "\n"
-			"  TARGET_PDB = " << ninjaWriter.Escape(config.outDir + config.targetName) << ".pdb\n"
-				  ;
-			if (useRsp)
-				ss << "  RSP_FILE = "<< config.name << "\\" << config.targetName << ".rsp\n";
-		}
-		else if (type == Type::Static)
-		{
-			ss << "\nbuild " << ninjaWriter.Escape(config.getOutputNameWithDir()) << ": CXX_STATIC_LIBRARY_LINKER " << depObjs << " || " << depsTargets << "\n"
-		   "  LANGUAGE_COMPILE_FLAGS =\n"
-		   "  LINK_FLAGS = " << linkFlags << "\n"
-		   "  OBJECT_DIR = " << targetName << ".dir\\" << config.name << "\n"
-		   "  POST_BUILD = cd .\n"
-		   "  PRE_LINK = cd .\n"
-		   "  TARGET_COMPILE_PDB = " << targetName << ".dir\\" << config.name << "\\" << config.targetName << ".pdb\n"
-		   "  TARGET_FILE = " << ninjaWriter.Escape(config.getOutputNameWithDir()) << "\n"
-		   "  TARGET_PDB = " << config.name << "\\" << config.targetName << ".pdb\n"
-				  ;
-		}
-		configIndex++;
-	}
-
-	return ss.str();
-}
-
 
 std::ostream &operator <<(std::ostream &os, const VcProjectInfo::Config &info) {
 	os << "config (" << info.configuration << "|" << info.platform << "):";
