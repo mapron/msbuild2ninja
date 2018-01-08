@@ -13,8 +13,10 @@ std::string VariableMap::GetStrValue(const std::string & key) const
 
 std::string VariableMap::GetStrValueFiltered(const std::string &key) const
 {
+	static const std::regex re("\\%\\(\\w+\\)", std::regex_constants::ECMAScript | std::regex_constants::optimize);
+
 	auto result = GetStrValue(key);
-	result = std::regex_replace(result, std::regex("\\%\\(\\w+\\)"), " ");
+	result = std::regex_replace(result, re, " ");
 	return result;
 }
 
@@ -54,16 +56,17 @@ void VariableMap::ParseFromXml(const std::string &blockName, const std::string &
 	const auto blockEnd = data.find("</" + blockName + ">", blockBegin);
 	if (blockEnd == std::string::npos)
 		return;
-	std::regex exp2(R"rx(<(\w+)>([^<]+)</)rx");
-	std::smatch res2;
+
+	static const std::regex re(R"rx(<(\w+)>([^<]+)</)rx", std::regex_constants::ECMAScript | std::regex_constants::optimize);
+	std::smatch res;
 	std::string::const_iterator searchStart2( data.cbegin() + blockBegin );
-	while ( std::regex_search( searchStart2, data.cbegin() + blockEnd, res2, exp2 ) )
+	while ( std::regex_search( searchStart2, data.cbegin() + blockEnd, res, re ) )
 	{
-		const std::string key = res2[1].str();
-		const std::string value = res2[2].str();
+		const std::string key = res[1].str();
+		const std::string value = res[2].str();
 	  //  std::cerr << key << "=" << value << std::endl;
 		variables[key] = value;
-		searchStart2 += res2.position() + res2.length();
+		searchStart2 += res.position() + res.length();
 	}
 }
 

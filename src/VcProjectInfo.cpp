@@ -44,7 +44,8 @@ void VcProjectInfo::ParseConfigs()
 
 	{
 		std::smatch res;
-		std::regex exp(R"rx(<ConfigurationType>(\w+)</ConfigurationType>)rx");
+		static const std::regex exp(R"rx(<ConfigurationType>(\w+)</ConfigurationType>)rx", std::regex_constants::ECMAScript | std::regex_constants::optimize);
+
 		std::string::const_iterator searchStart( projectFileData.cbegin() );
 		if ( std::regex_search( searchStart, projectFileData.cend(), res, exp ) )
 		{
@@ -66,7 +67,8 @@ void VcProjectInfo::ParseConfigs()
 	{
 		auto start = projectFileData.find("/_ProjectFileVersion");
 		auto end   = projectFileData.find("/PropertyGroup", start);
-		std::regex exp2(R"rx(<(\w+) Condition="'\$\(Configuration\)\|\$\(Platform\)'=='(\w+)\|(\w+)'">([^<]+)</)rx");
+		static const std::regex exp2(R"rx(<(\w+) Condition="'\$\(Configuration\)\|\$\(Platform\)'=='(\w+)\|(\w+)'">([^<]+)</)rx", std::regex_constants::ECMAScript | std::regex_constants::optimize);
+
 		std::string::const_iterator searchStart( projectFileData.cbegin() + start );
 		std::smatch res;
 		while ( std::regex_search( searchStart, projectFileData.cbegin() + end, res, exp2 ) )
@@ -81,10 +83,10 @@ void VcProjectInfo::ParseConfigs()
 
 
 	std::smatch res;
-	std::regex exp(R"rx(<ItemDefinitionGroup Condition="'\$\(Configuration\)\|\$\(Platform\)'=='(\w+)\|(\w+)'">\s*)rx");
+	static const std::regex exp3(R"rx(<ItemDefinitionGroup Condition="'\$\(Configuration\)\|\$\(Platform\)'=='(\w+)\|(\w+)'">\s*)rx", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 
 	std::string::const_iterator searchStart( projectFileData.cbegin() );
-	while ( std::regex_search( searchStart, projectFileData.cend(), res, exp ) )
+	while ( std::regex_search( searchStart, projectFileData.cend(), res, exp3 ) )
 	{
 		searchStart += res.position() + res.length();
 		auto off  = searchStart - projectFileData.cbegin();
@@ -210,10 +212,12 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 	if (posRef == std::string::npos || posRefEnd == std::string::npos)
 		return;
 
+	static const std::regex re("<ConfigurationType>\\w+</ConfigurationType>", std::regex_constants::ECMAScript | std::regex_constants::optimize);
+
 	projectFileData.erase(projectFileData.begin() + posRef, projectFileData.begin() + posRefEnd + refEnd.size());
 
 	projectFileData = std::regex_replace(projectFileData,
-										 std::regex("<ConfigurationType>\\w+</ConfigurationType>"),
+										 re,
 										 "<ConfigurationType>Makefile</ConfigurationType>");
 
 	std::ostringstream os;
@@ -245,6 +249,7 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 	auto filterCommandScript = [](const std::string & data) -> std::string
 	{
 		static const std::regex re("(if |cd |exit |setlocal|endlocal|:).*", std::regex_constants::ECMAScript | std::regex_constants::optimize);
+		static const std::regex reNL("[\r\n]", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 		auto lines = strToList(data, '\n');
 		for (const auto & line : lines)
 		{
@@ -253,7 +258,7 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 			if (std::regex_match(line, re))
 				continue;
 
-			return std::regex_replace(line, std::regex("[\r\n]"), "");
+			return std::regex_replace(line, reNL, "");
 		}
 		return "";
 	};

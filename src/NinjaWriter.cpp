@@ -21,7 +21,8 @@ std::string NinjaWriter::Escape(std::string value)
 		idents[value] = newIdent;
 		return "$" + newIdent;
 	}
-	return std::regex_replace(value, std::regex("([ ]|[:])"), "$$$1"); // "$$" converts to "$" symbol, and $1 captures 1 match.
+	static const std::regex re("([ ]|[:])", std::regex_constants::ECMAScript | std::regex_constants::optimize);
+	return std::regex_replace(value, re, "$$$1"); // "$$" converts to "$" symbol, and $1 captures 1 match.
 }
 
 std::string NinjaWriter::Escape(const StringVector &values)
@@ -101,7 +102,7 @@ void NinjaWriter::GenerateNinjaRules(const VcProjectInfo &project)
 	std::set<std::string> existingObjNames;
 	auto getObjectName = [&existingObjNames](const std::string & filename, const std::string & intDir)
 	{
-		static std::regex re("\\.(cpp|rc)$");
+		static const std::regex re("\\.(cpp|rc)$", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 		std::string objName = filename.substr(filename.rfind("\\") + 1);
 		objName =  std::regex_replace(objName, re, ".obj");
 		std::string fullObjName = intDir + objName;

@@ -4,6 +4,7 @@
 #include <regex>
 #include <sstream>
 #include <fstream>
+#include <chrono>
 
 #include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
@@ -13,7 +14,6 @@ using fserr = std::error_code;
 #include "VcProjectInfo.h"
 #include "CommandLine.h"
 
-
 void parseSln(const std::string & slnBase, const std::string & slnName, VcProjectList & vcprojs, const bool dryRun)
 {
 	std::string filestr;
@@ -21,8 +21,9 @@ void parseSln(const std::string & slnBase, const std::string & slnName, VcProjec
 		throw std::runtime_error("Failed to read .sln file");
 
 	std::smatch res;
-	std::regex exp(R"rx(Project\("\{[0-9A-F-]+\}"\) = "(\w+)", "(\w+\.vcxproj)", "\{([0-9A-F-]+)\}"\s*ProjectSection\(ProjectDependencies\) = postProject)rx");
-	std::regex exp2(R"rx(\{([0-9A-F-]+)\} = )rx");
+
+	std::regex exp(R"rx(Project\("\{[0-9A-F-]+\}"\) = "(\w+)", "(\w+\.vcxproj)", "\{([0-9A-F-]+)\}"\s*ProjectSection\(ProjectDependencies\) = postProject)rx", std::regex_constants::ECMAScript | std::regex_constants::optimize);
+	std::regex exp2(R"rx(\{([0-9A-F-]+)\} = )rx", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 	std::string::const_iterator searchStart( filestr.cbegin() );
 	while ( std::regex_search( searchStart, filestr.cend(), res, exp ) )
 	{
@@ -45,9 +46,8 @@ void parseSln(const std::string & slnBase, const std::string & slnName, VcProjec
 		vcprojs.push_back(info);
 		searchStart += res.position() + res.length();
 	}
-	filestr = std::regex_replace(filestr,
-										 std::regex("postProject[\r\n\t {}=0-9A-F-]+EndProjectSection"),
-										 "postProject\n\tEndProjectSection");
+	std::regex post("postProject[\r\n\t {}=0-9A-F-]+EndProjectSection", std::regex_constants::ECMAScript | std::regex_constants::optimize);
+	filestr = std::regex_replace(filestr, post, "postProject\n\tEndProjectSection");
 
 	if (!dryRun && !FileInfo(slnBase + "/" + slnName).WriteFile(filestr))
 		 throw std::runtime_error("Failed to write file:" + slnName);
@@ -57,7 +57,7 @@ int main(int argc, char* argv[])
 {
 	try {
 		CommandLine cmd(argc, argv);
-
+		//auto start = std::chrono::system_clock::now();
 		VcProjectList vcprojs;
 		parseSln(cmd.rootDir,  cmd.slnFile, vcprojs, cmd.dryRun);
 
@@ -82,7 +82,7 @@ int main(int argc, char* argv[])
 		//	std::cout << p;
 
 		ninjaWriter.WriteFile(cmd.verbose);
-
+		//std::cout <<  "Elapsed time: " << std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::system_clock::now() - start ).count() << '\n';
 	} catch(std::exception & e) {
 		std::cout << e.what() << std::endl;
 		return 1;
