@@ -1,0 +1,21 @@
+#pragma once
+
+#include "CommonTypes.h"
+
+#include <map>
+#include <sstream>
+
+class NinjaWriter
+{
+	std::map<std::string, std::string> idents;
+	std::ostringstream identsDecl;
+	int maxIdent = 0;
+	const std::string buildRoot, cmakeExe;
+public:
+	NinjaWriter(const std::string & buildRoot_, const std::string & cmakeExe_) : buildRoot(buildRoot_), cmakeExe(cmakeExe_) {}
+	std::string Escape(std::string value);
+	std::string Escape(const StringVector & values);
+
+	void WriteFile(const std::string & targetRules, bool verbose) const;
+
+};

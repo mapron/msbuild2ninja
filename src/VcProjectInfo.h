@@ -3,40 +3,9 @@
 #include <set>
 
 #include "CommonTypes.h"
+#include "VariableMap.h"
+#include "NinjaWriter.h"
 
-struct VariableMap
-{
-	std::map<std::string, std::string> variables;
-	std::string GetStrValue(const std::string & key) const;
-	std::string GetStrValueFiltered(const std::string & key) const;
-	StringVector GetListValue(const std::string & key) const;
-	std::string GetMappedValue(const std::string & key, const std::map<std::string, std::string> & mapping) const;
-	bool GetBoolValue(const std::string & key, bool def = false) const;
-
-	std::string & operator [] (const std::string & key) { return variables[key];}
-
-	void ParseFromXml(const std::string & blockName, const std::string & data);
-};
-
-inline std::ostream & operator << (std::ostream & os, const VariableMap & info) {
-	for (const auto & dep : info.variables)
-		os << "\n\t\t" << dep.first << "=" << dep.second;
-	return os;
-}
-
-class NinjaEscaper
-{
-	std::map<std::string, std::string> idents;
-	std::ostringstream identsDecl;
-	int maxIdent = 0;
-	const std::string buildRoot;
-public:
-	NinjaEscaper(const std::string & buildRoot_) : buildRoot(buildRoot_) {}
-	std::string Escape(std::string value);
-	std::string Escape(const StringVector & values);
-
-	std::string GetIdentsDecls() const;
-};
 
 struct VcProjectInfo
 {
@@ -60,6 +29,14 @@ struct VcProjectInfo
 		VariableMap linkVariables;
 	};
 	std::vector<Config> configs;
+	struct CustomBuild
+	{
+		std::string message;
+		StringVector deps;
+		std::string output;
+		std::string command;
+	};
+
 	struct ParsedConfig {
 		std::string name;
 		std::string platform;
@@ -75,29 +52,32 @@ struct VcProjectInfo
 		StringVector flags;
 		StringVector link;
 		StringVector linkFlags;
+
+		std::vector<CustomBuild> customCommands;
+
 		std::string getOutputName() const { return targetName + targetMainExt;}
-		std::string getOutputNameWithDir() const { return outDir + getOutputName();}
+		std::string getOutputNameWithDir() const { return outDir + getOutputName(); }
 		std::string getImportName() const { return targetImportExt.empty() ? "" : targetName + targetImportExt;}
-		std::string getImportNameWithDir() const { return targetImportExt.empty() ? "" : outDir + getImportName();}
+		std::string getImportNameWithDir() const { return targetImportExt.empty() ? "" : intDir + getImportName();}
 	};
 	std::vector<ParsedConfig> parsedConfigs;
-	struct CustomBuild
-	{
-		std::string message;
-		std::string input;
-		StringVector deps;
-		std::string output;
-		std::string command;
-	};
-	std::vector<CustomBuild> customCommands;
 
-	enum class Type { Unknown, Static, Dynamic, App };
+
+	enum class Type { Unknown, Static, Dynamic, App, Utility };
 	Type type = Type::Unknown;
-
+	void ReadVcProj();
+	void WriteVcProj();
 	void ParseConfigs();
 	void TransformConfigs(const StringVector & configurations, const std::string &rootDir);
-	void ConvertToMakefile(const std::string & ninjaBin, bool dryRun);
+	void ConvertToMakefile(const std::string & ninjaBin, const StringVector & customDeps);
 	void CalculateDependentTargets(const std::vector<VcProjectInfo> & allTargets);
-	std::string GetNinjaRules(std::set<std::string> &existingRules, NinjaEscaper & escaper) const;
+	std::string GetNinjaRules(std::set<std::string> &existingRules, NinjaWriter & ninjaWriter) const;
 };
 using VcProjectList = std::vector<VcProjectInfo>;
+
+
+std::ostream & operator << (std::ostream & os, const VcProjectInfo::Config & info);
+
+std::ostream & operator << (std::ostream & os, const VcProjectInfo::ParsedConfig & info);
+
+std::ostream & operator << (std::ostream & os, const VcProjectInfo & info);

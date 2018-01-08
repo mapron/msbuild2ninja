@@ -13,44 +13,6 @@ using fserr = std::error_code;
 #include "VcProjectInfo.h"
 
 
-std::ostream & operator << (std::ostream & os, const StringVector & lst) {
-	for (const auto & el : lst)
-		os << el << " ";
-	return os;
-}
-
-std::ostream & operator << (std::ostream & os, const VcProjectInfo::Config & info) {
-	os << "config (" << info.configuration << "|" << info.platform << "):";
-	os << info.clVariables;
-	os << "\n";
-	return os;
-}
-
-std::ostream & operator << (std::ostream & os, const VcProjectInfo::ParsedConfig & info) {
-	os << "PREPARED (" << info.name << "): \n";
-	os << "\t\tINCLUDES=" << info.includes << "\n";
-	os << "\t\tDEFINES=" << info.defines << "\n";
-	os << "\t\tFLAGS=" << info.flags << "\n";
-	os << "\t\tLINK=" << info.link << "\n";
-	os << "\t\tLINKFLAGS=" << info.linkFlags << "\n";
-	return os;
-}
-
-std::ostream & operator << (std::ostream & os, const VcProjectInfo & info) {
-	os << "vcproj (" << info.targetName << "=" << info.fileName << "):" << info.GUID;
-	for (const auto & dep : info.dependentGuids)
-		os << "\n\tdep <- " << dep;
-	for (const auto & clFile : info.clCompileFiles)
-		os << "\n\tCL: " << clFile;
-	os << "\n";
-	for (const auto & cfg : info.configs)
-		os << "\t" << cfg;
-	for (const auto & cfg : info.parsedConfigs)
-		os << "\t" << cfg;
-	os << "\n";
-	return os;
-}
-
 void parseSln(const std::string & slnBase, const std::string & slnName, VcProjectList & vcprojs, const bool dryRun)
 {
 	std::string filestr;
@@ -81,7 +43,6 @@ void parseSln(const std::string & slnBase, const std::string & slnName, VcProjec
 		}
 		vcprojs.push_back(info);
 		searchStart += res.position() + res.length();
-	//	std::cout << "read tree: " << info.targetName << std::endl;
 	}
 	filestr = std::regex_replace(filestr,
 										 std::regex("postProject[\r\n\t {}=0-9A-F-]+EndProjectSection"),
@@ -119,73 +80,32 @@ int main(int argc, char* argv[])
 		VcProjectList vcprojs;
 		parseSln(rootDir,  slnFiles[0], vcprojs, dryRun);
 
-		std::ostringstream ninjaHeader;
-		ninjaHeader << "ninja_required_version = 1.5\n";
-		ninjaHeader << "msvc_deps_prefix = Note: including file: \n";
-		ninjaHeader << "rule CXX_COMPILER\n"
-							"  deps = msvc\n"
-							"  command = cl.exe  /nologo $DEFINES $INCLUDES $FLAGS /showIncludes /Fo$out /Fd$TARGET_COMPILE_PDB /FS -c $in\n"
-							"  description = Building CXX object $out\n\n";
-
-		ninjaHeader << "rule CXX_STATIC_LIBRARY_LINKER\n"
-						   "  command = cmd.exe /C \"$PRE_LINK && link.exe /lib /nologo $LINK_FLAGS /out:$TARGET_FILE $in  && $POST_BUILD\"\n"
-						   "  description = Linking CXX static library $TARGET_FILE\n"
-						   "  restat = $RESTAT\n";
-
-		ninjaHeader << "rule CXX_SHARED_LIBRARY_LINKER\n"
-			"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_dll --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:$TARGET_FILE /implib:$TARGET_IMPLIB /pdb:$TARGET_PDB /dll /version:0.0 $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES  && $POST_BUILD\"\n"
-			"  description = Linking CXX shared library $TARGET_FILE\n"
-			"  restat = 1\n";
-
-		ninjaHeader << "rule CXX_SHARED_LIBRARY_LINKER_RSP\n"
-			"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_dll --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo @$RSP_FILE  /out:$TARGET_FILE /implib:$TARGET_IMPLIB /pdb:$TARGET_PDB /dll /version:0.0 $LINK_FLAGS  && $POST_BUILD\"\n"
-			"  description = Linking CXX shared library $TARGET_FILE\n"
-			"  rspfile = $RSP_FILE\n"
-			"  rspfile_content = $in_newline $LINK_PATH $LINK_LIBRARIES \n"
-			"  restat = 1\n";
-
-		ninjaHeader << "rule CXX_EXECUTABLE_LINKER\n"
-			"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:$TARGET_FILE /pdb:$TARGET_PDB /version:0.0  $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES && $POST_BUILD\"\n"
-			"  description = Linking CXX executable $TARGET_FILE\n"
-			"  restat = $RESTAT\n";
-
-		ninjaHeader << "rule CXX_EXECUTABLE_LINKER_RSP\n"
-			"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo @$RSP_FILE  /out:$TARGET_FILE /pdb:$TARGET_PDB /version:0.0  $LINK_FLAGS && $POST_BUILD\"\n"
-			"  rspfile = $RSP_FILE\n"
-			"  rspfile_content = $in_newline $LINK_PATH $LINK_LIBRARIES \n"
-			"  description = Linking CXX executable $TARGET_FILE\n"
-			"  restat = $RESTAT\n";
-
-		ninjaHeader << "rule CUSTOM_COMMAND\n"
-							  "  command = $COMMAND\n"
-							  "  description = $DESC\n";
-
-		ninjaHeader << "rule RC_COMPILER\n"
-							 "  command = rc.exe $DEFINES $INCLUDES $FLAGS /fo$out $in\n"
-							 "  description = Building RC object $out\n";
-
 		for (auto & p : vcprojs)
 		{
+			StringVector customDeps;
+			if (p.targetName =="InstallProduct")
+				customDeps = StringVector{"Release_InstallBuildFixupRelease"}; // @todo: @fixme:
+
+			p.ReadVcProj();
 			p.ParseConfigs();
-			p.TransformConfigs({"Debug", "Release"}, rootDir);
-			p.ConvertToMakefile(ninjaExe, dryRun);
+			p.TransformConfigs({"Release", "Debug"}, rootDir); // order is crucial - Release rules more prioritized on conflict.
+			p.ConvertToMakefile(ninjaExe, customDeps);
+			if (!dryRun)
+				p.WriteVcProj();
 		}
 		std::set<std::string> existingRules;
-		NinjaEscaper escaper(rootDir);
+		NinjaWriter ninjaWriter(rootDir, cmakeExe);
 		std::ostringstream targetsRules;
 		for (auto & p : vcprojs)
 		{
 			p.CalculateDependentTargets(vcprojs);
-			targetsRules << p.GetNinjaRules(existingRules, escaper);
+			targetsRules << p.GetNinjaRules(existingRules, ninjaWriter);
 		}
 		//std::cout << "Parsed projects:\n";
 		//for (const auto & p : vcprojs)
 		//	std::cout << p;
 
-		const std::string buildNinja = ninjaHeader.str() + escaper.GetIdentsDecls() + targetsRules.str();
-		std::cout << "\nNinja file:\n" << buildNinja;
-
-		FileInfo(rootDir + "/build.ninja").WriteFile(buildNinja, false);
+		ninjaWriter.WriteFile(targetsRules.str(), /*verbose=*/true);
 
 	} catch(std::exception & e) {
 		std::cout << e.what() << std::endl;

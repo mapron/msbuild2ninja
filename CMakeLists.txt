@@ -22,7 +22,7 @@ endif()
 if (NOT MSVC)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z ")
 else()
-        set(CMAKE_CXX_FLAGS_DEBUG "/MDd /Zi /Ob0 /Od /RTC1")
+		set(CMAKE_CXX_FLAGS_DEBUG "/MDd /Zi /O2")
 endif()
 
 set(sys_deps)

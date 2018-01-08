@@ -20,3 +20,9 @@
 
 using StringVector = std::vector<std::string>;
 using ByteArray    = std::vector<uint8_t>;
+
+inline std::ostream & operator << (std::ostream & os, const StringVector & lst) {
+	for (const auto & el : lst)
+		os << el << " ";
+	return os;
+}
