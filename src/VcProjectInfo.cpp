@@ -248,7 +248,7 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 
 	auto filterCommandScript = [](const std::string & data) -> std::string
 	{
-		static const std::regex re("(if |cd |exit |setlocal|endlocal|:).*", std::regex_constants::ECMAScript | std::regex_constants::optimize);
+		static const std::regex re("(if |cd |exit |setlocal|endlocal|:).*[\r]?", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 		static const std::regex reNL("[\r\n]", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 		auto lines = strToList(data, '\n');
 		for (const auto & line : lines)
