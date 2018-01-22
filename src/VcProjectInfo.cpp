@@ -220,6 +220,10 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 										 re,
 										 "<ConfigurationType>Makefile</ConfigurationType>");
 
+	projectFileData = std::regex_replace(projectFileData,
+										std::regex("<CustomBuild Include="),
+										 "<None Include=");
+
 	std::ostringstream os;
 	for (const ParsedConfig & config : parsedConfigs)
 	{
