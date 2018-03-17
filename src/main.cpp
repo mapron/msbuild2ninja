@@ -57,6 +57,20 @@ int main(int argc, char* argv[])
 {
 	try {
 		CommandLine cmd(argc, argv);
+		auto checkFile = fs::path(cmd.rootDir) / (cmd.slnFile + ".timestamp");
+		if (!cmd.dryRun)
+		{
+			std::error_code ec;
+			const auto slnTime = fs::last_write_time(fs::path(cmd.rootDir) / cmd.slnFile, ec);
+			const auto checkTime = fs::last_write_time(checkFile, ec);
+			const bool needUpdate = slnTime > checkTime;
+			if (!needUpdate)
+			{
+				std::cout << "Solution is up-to-date, skipping" << std::endl;
+				return 0;
+			}
+		}
+
 		//auto start = std::chrono::system_clock::now();
 		VcProjectList vcprojs;
 		parseSln(cmd.rootDir,  cmd.slnFile, vcprojs, cmd.dryRun);
@@ -82,6 +96,10 @@ int main(int argc, char* argv[])
 		//	std::cout << p;
 
 		ninjaWriter.WriteFile(cmd.verbose);
+		if (!cmd.dryRun)
+		{
+			FileInfo(checkFile.u8string()).WriteFile("1");
+		}
 		//std::cout <<  "Elapsed time: " << std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::system_clock::now() - start ).count() << '\n';
 	} catch(std::exception & e) {
 		std::cout << e.what() << std::endl;
