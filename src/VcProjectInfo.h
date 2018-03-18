@@ -35,6 +35,7 @@ struct VcProjectInfo
 		std::string message;
 		StringVector deps;
 		std::string output;
+		StringVector additionalOutputs;
 		std::string command;
 	};
 

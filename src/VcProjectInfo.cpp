@@ -329,6 +329,13 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 				continue;
 			if (rule.output.find("CMakeFiles") != std::string::npos) // hack! this allows phony rules be different on debug and release, but real outputs (e.g. resources) be the same.
 				rule.output += "\\" + config.name;
+			if (rule.output.find(";") != std::string::npos)
+			{
+				auto outputs = strToList(rule.output);
+				rule.output = outputs[0];
+				outputs.erase(outputs.begin());
+				rule.additionalOutputs = outputs;
+			}
 			auto inputs = strToList(extractParamConfig("AdditionalInputs"));
 			inputs = filterCustomInputs(inputs);
 			if (inputs.empty())

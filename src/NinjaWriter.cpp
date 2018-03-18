@@ -126,9 +126,9 @@ void NinjaWriter::GenerateNinjaRules(const VcProjectInfo &project)
 			if (existingRules.find(escapedOut) == existingRules.end())
 			{
 				if (customCmd.command.empty())
-					ss << "\nbuild " << escapedOut << ": phony " << this->Escape(customCmd.deps) <<  "\n";
+					ss << "\nbuild " << escapedOut << " " << this->Escape(customCmd.additionalOutputs) << ": phony " << this->Escape(customCmd.deps) <<  "\n";
 				else
-					ss << "\nbuild " << escapedOut << ": CUSTOM_COMMAND " << this->Escape(customCmd.deps) <<  "\n"
+					ss << "\nbuild " << escapedOut << " " << this->Escape(customCmd.additionalOutputs) << ": CUSTOM_COMMAND " << this->Escape(customCmd.deps) <<  "\n"
 						"  COMMAND = cmd.exe /C \"" << customCmd.command << "\" \n"
 						"  DESC = " << customCmd.message << "\n"
 						"  restat = 1\n"
