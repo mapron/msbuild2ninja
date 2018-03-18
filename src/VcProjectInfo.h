@@ -15,6 +15,7 @@ struct VcProjectInfo
 	std::string fileName;
 	std::string GUID;
 	std::string projectFileData;
+	std::string projectFiltersData;
 	StringVector dependentGuids;
 	std::vector<const VcProjectInfo*> dependentTargets;
 	StringVector clCompileFiles;

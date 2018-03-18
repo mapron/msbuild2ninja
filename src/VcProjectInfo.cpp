@@ -11,11 +11,15 @@ void VcProjectInfo::ReadVcProj()
 {
 	if (!FileInfo(baseDir + "/" + fileName).ReadFile(projectFileData))
 		throw std::runtime_error("Failed to read project file");
+	if (!FileInfo(baseDir + "/" + fileName + ".filters").ReadFile(projectFiltersData))
+		throw std::runtime_error("Failed to read project file");
 }
 
 void VcProjectInfo::WriteVcProj()
 {
 	if (!FileInfo(baseDir + "/" + fileName).WriteFile(projectFileData))
+		 throw std::runtime_error("Failed to write file:" + fileName);
+	if (!FileInfo(baseDir + "/" + fileName + ".filters").WriteFile(projectFiltersData))
 		 throw std::runtime_error("Failed to write file:" + fileName);
 }
 
@@ -220,9 +224,27 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 										 re,
 										 "<ConfigurationType>Makefile</ConfigurationType>");
 
-	projectFileData = std::regex_replace(projectFileData,
-										std::regex("<CustomBuild Include="),
-										 "<None Include=");
+	static std::regex customBuild("<CustomBuild Include=\"([^\"]+)\">\\s*<Filter>([^<]+)</Filter>\\s*</CustomBuild>", std::regex_constants::ECMAScript | std::regex_constants::optimize);
+
+	{
+		std::smatch res;
+		std::string::const_iterator searchStart( projectFiltersData.cbegin() );
+		std::string replacedText;
+		while ( std::regex_search( projectFiltersData.cbegin(), projectFiltersData.cend(), res, customBuild ) )
+		{
+			auto filename = res[1].str();
+			const bool ignore = filename.find(".rule") != std::string::npos;
+			const std::string replaceStr = ignore ? "" : "<None Include=\"" + filename + "\"><Filter>" + res[2].str() + "</Filter></None>";
+			projectFiltersData.replace(projectFiltersData.begin() + res.position(), projectFiltersData.begin() + res.position() + res.length(), replaceStr);
+			if (!ignore)
+			{
+				replacedText += replaceStr + "\n";
+			}
+		}
+		auto lastGroup = projectFileData.rfind("</ItemGroup>");
+		if (!replacedText.empty())
+			projectFileData.insert(lastGroup + 12, "<ItemGroup>\n" + replacedText + "</ItemGroup>\n");
+	}
 
 	std::ostringstream os;
 	for (const ParsedConfig & config : parsedConfigs)
