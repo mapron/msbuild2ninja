@@ -25,6 +25,7 @@ void parseSln(const std::string & slnBase, const std::string & slnName, VcProjec
 	std::regex exp(R"rx(Project\("\{[0-9A-F-]+\}"\) = "(\w+)", "(\w+\.vcxproj)", "\{([0-9A-F-]+)\}"\s*ProjectSection\(ProjectDependencies\) = postProject)rx", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 	std::regex exp2(R"rx(\{([0-9A-F-]+)\} = )rx", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 	std::string::const_iterator searchStart( filestr.cbegin() );
+	std::string ALL_BUILD_GUID;
 	while ( std::regex_search( searchStart, filestr.cend(), res, exp ) )
 	{
 		VcProjectInfo info;
@@ -32,6 +33,9 @@ void parseSln(const std::string & slnBase, const std::string & slnName, VcProjec
 		info.targetName = res[1].str();
 		info.fileName   = res[2].str();
 		info.GUID       = res[3].str();
+
+		if (info.targetName == "ALL_BUILD")
+			ALL_BUILD_GUID = info.GUID;
 
 		size_t posStart = searchStart - filestr.cbegin() + res.position() + res.length();
 		size_t posEnd   = filestr.find("EndProjectSection", posStart);
@@ -48,6 +52,20 @@ void parseSln(const std::string & slnBase, const std::string & slnName, VcProjec
 	}
 	std::regex post("postProject[\r\n\t {}=0-9A-F-]+EndProjectSection", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 	filestr = std::regex_replace(filestr, post, "postProject\n\tEndProjectSection");
+
+	std::regex buildGuid(R"rx(\{([0-9A-F-]+)\}\.\w+\|\w+.Build\.0 = \w+\|\w+)rx", std::regex_constants::ECMAScript | std::regex_constants::optimize);
+	searchStart = filestr.cbegin();
+	while ( std::regex_search( searchStart, filestr.cend(), res, buildGuid ) )
+	{
+		const std::string GUID       = res[1].str();
+		if (!ALL_BUILD_GUID.empty() && GUID != ALL_BUILD_GUID)
+		{
+			filestr.erase(searchStart + res.position(), searchStart + res.position() + res.length() );
+			continue;
+		}
+
+		searchStart += res.position() + res.length();
+	}
 
 	if (!dryRun && !FileInfo(slnBase + "/" + slnName).WriteFile(filestr))
 		 throw std::runtime_error("Failed to write file:" + slnName);
@@ -91,9 +109,9 @@ int main(int argc, char* argv[])
 			p.CalculateDependentTargets(vcprojs);
 			ninjaWriter.GenerateNinjaRules(p);
 		}
-		//std::cout << "Parsed projects:\n";
-		//for (const auto & p : vcprojs)
-		//	std::cout << p;
+//		std::cout << "Parsed projects:\n";
+//		for (const auto & p : vcprojs)
+//			std::cout << p;
 
 		ninjaWriter.WriteFile(cmd.verbose);
 		if (!cmd.dryRun)
