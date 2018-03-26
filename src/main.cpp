@@ -52,7 +52,7 @@ void parseSln(const std::string & slnBase, const std::string & slnName, VcProjec
 	}
 	std::regex post("postProject[\r\n\t {}=0-9A-F-]+EndProjectSection", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 	filestr = std::regex_replace(filestr, post, "postProject\n\tEndProjectSection");
-
+#if 0 // todo:
 	std::regex buildGuid(R"rx(\{([0-9A-F-]+)\}\.\w+\|\w+.Build\.0 = \w+\|\w+)rx", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 	searchStart = filestr.cbegin();
 	while ( std::regex_search( searchStart, filestr.cend(), res, buildGuid ) )
@@ -66,7 +66,7 @@ void parseSln(const std::string & slnBase, const std::string & slnName, VcProjec
 
 		searchStart += res.position() + res.length();
 	}
-
+#endif
 	if (!dryRun && !FileInfo(slnBase + "/" + slnName).WriteFile(filestr))
 		 throw std::runtime_error("Failed to write file:" + slnName);
 }
