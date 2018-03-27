@@ -156,8 +156,7 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations, const 
 			if (!t.empty())
 				pc.linkFlags.push_back(t);
 		};
-
-		flagsProcess("RuntimeLibrary", {{"MultiThreadedDLL", "/MD"}, {"MultiThreadedDebugDLL", "/MDd"}});
+		flagsProcess("RuntimeLibrary", {{"MultiThreadedDLL", "/MD"}, {"MultiThreadedDebugDLL", "/MDd"},{"MultiThreaded", "/MT"}, {"MultiThreadedDebug", "/MTd"}});
 		flagsProcess("ExceptionHandling", {{"Sync", "/EHsc"}});
 		flagsProcess("Optimization", {{"Disabled", "/Od"}, {"MinSpace", "/O1"}, {"MaxSpeed", "/O2"}});
 		flagsProcess("DebugInformationFormat", {{"ProgramDatabase", "/Zi"}});
