@@ -115,7 +115,6 @@ void NinjaWriter::GenerateNinjaRules(const VcProjectInfo &project)
 		return fullObjName;
 	};
 
-	size_t configIndex = 0;
 	for (const auto & config : project.parsedConfigs)
 	{
 		std::string orderOnlyTarget;
@@ -147,8 +146,9 @@ void NinjaWriter::GenerateNinjaRules(const VcProjectInfo &project)
 		}
 		for (const VcProjectInfo * dep : project.dependentTargets)
 		{
-			const auto & depConfig = dep->parsedConfigs[configIndex];
-			assert(depConfig.name == config.name);
+			const auto & depConfig = *std::find_if( dep->parsedConfigs.cbegin(), dep->parsedConfigs.cend(), [&config](const VcProjectInfo::ParsedConfig & pc) {
+				return pc.name == config.name;
+			});
 			if (dep->type == Type::Dynamic)
 			{
 				depLink     += " " + this->Escape(depConfig.getImportNameWithDir());
@@ -242,7 +242,6 @@ void NinjaWriter::GenerateNinjaRules(const VcProjectInfo &project)
 		   "  TARGET_PDB = " << config.name << "\\" << config.targetName << ".pdb\n"
 				  ;
 		}
-		configIndex++;
 	}
 
 	targetRules << ss.str();
