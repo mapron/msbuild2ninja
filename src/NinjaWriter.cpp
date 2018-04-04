@@ -208,7 +208,7 @@ void NinjaWriter::GenerateNinjaRules(const VcProjectInfo &project)
 		std::string linkFlags = joinVector(config.linkFlags);
 		if (type == Type::App || type == Type::Dynamic)
 		{
-			const bool useRsp = linkFlags.size() + linkLibraries.size() + depLink.size() + depObjs.size() > 8000; // do not support NT 4
+			const bool useRsp = linkFlags.size() + linkLibraries.size() + depLink.size() + depObjs.size() > 2000; // do not support NT 4
 			const std::string ruleSuffix = useRsp ? "_RSP" : "";
 			if (type == Type::App)
 				ss << "\nbuild " << this->Escape(config.getOutputNameWithDir()) << ": CXX_EXECUTABLE_LINKER" << ruleSuffix << " " << depObjs << " | " << depLink << " || " << depsTargets << "\n";
