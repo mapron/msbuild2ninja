@@ -55,5 +55,6 @@ CommandLine::CommandLine(int argc, char *argv[])
 	if (slnFiles.size() != 1)
 		throw std::invalid_argument("directory should contain exactly one sln file");
 
+	std::replace(rootDir.begin(), rootDir.end(), '/', '\\');
 	slnFile = slnFiles[0];
 }

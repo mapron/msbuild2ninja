@@ -137,6 +137,8 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations, const 
 		pc.targetMainExt = config.projectVariables.GetStrValue("TargetExt");
 		pc.outDir = config.projectVariables.GetStrValue("OutDir");
 		pc.intDir = config.projectVariables.GetStrValue("IntDir");
+		std::replace(pc.outDir.begin(), pc.outDir.end(), '/', '\\');
+
 		if (pc.targetName.empty())
 			pc.targetName = targetName;
 		if (pc.outDir.find(rootDir) == 0)
