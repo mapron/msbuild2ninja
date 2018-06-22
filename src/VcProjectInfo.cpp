@@ -122,10 +122,12 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations, const 
 		});
 		return result;
 	};
-	for (const Config & config : configs)
+	for (const auto & configName : configurations)
 	{
-		if (std::find(configurations.cbegin(), configurations.cend(), config.configuration) == configurations.cend())
+		auto configIt = std::find_if( configs.begin(), configs.end(), [&configName](const Config & config){ return config.configuration == configName;});
+		if (configIt == configs.end())
 			continue;
+		const Config & config = *configIt;
 
 		ParsedConfig pc;
 		pc.name = config.configuration;
@@ -278,6 +280,7 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 		static const std::regex re("(if |cd |exit |setlocal|endlocal|:).*[\r]?", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 		static const std::regex reNL("[\r\n]", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 		auto lines = strToList(data, '\n');
+		std::string result = "";
 		for (const auto & line : lines)
 		{
 			if (line.size() < 4)
@@ -285,9 +288,10 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 			if (std::regex_match(line, re))
 				continue;
 
-			return std::regex_replace(line, reNL, "");
+			if (!result.empty()) result += " && ";
+			result += std::regex_replace(line, reNL, "");
 		}
-		return "";
+		return result;
 	};
 
 	auto filterCustomInputs = [](const StringVector & inputs) -> StringVector
