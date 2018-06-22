@@ -118,6 +118,10 @@ int main(int argc, char* argv[])
 		{
 			FileInfo(checkFile.u8string()).WriteFile("1");
 		}
+		for (const auto & config : cmd.configs)
+		{
+			FileInfo(cmd.rootDir + "/" + config + "/").Mkdirs();
+		}
 		//std::cout <<  "Elapsed time: " << std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::system_clock::now() - start ).count() << '\n';
 	} catch(std::exception & e) {
 		std::cout << e.what() << std::endl;
