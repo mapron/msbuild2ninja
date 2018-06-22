@@ -363,8 +363,7 @@ void VcProjectInfo::CalculateDependentTargets(const std::vector<VcProjectInfo> &
 		auto it = std::find_if(allTargets.cbegin(), allTargets.cend(), [depGuid](const auto & info){ return info.GUID == depGuid;});
 		if (it != allTargets.cend())
 		{
-			if (!it->clCompileFiles.empty()) // @todo: maybe type check?
-				dependentTargets.push_back(&*it);
+			dependentTargets.push_back(&*it);
 		}
 	}
 }
