@@ -196,6 +196,10 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations, const 
 		if (!additionalOptionsLink.empty())
 			pc.linkFlags.push_back(additionalOptionsLink);
 
+		auto entryPointSymbol = config.linkVariables.GetStrValueFiltered("EntryPointSymbol");
+		if (!entryPointSymbol.empty())
+			pc.linkFlags.push_back("/ENTRY:" + entryPointSymbol);
+
 		linkFlagsProcess("GenerateDebugInformation", {{"true", "/debug"}, {"Debug", "/debug"}}); // wtf - cmake does this.
 		linkFlagsProcess("SubSystem", {{"Console", "/subsystem:console"}, {"Windows", "/subsystem:windows"}});
 		linkFlagsProcess("ImageHasSafeExceptionHandlers", {{"false", "/SAFESEH:NO"}});
