@@ -119,15 +119,32 @@ void NinjaWriter::GenerateNinjaRules(const VcProjectInfo &project)
 	{
 		std::string orderOnlyTarget;
 		std::string orderDeps;
+		std::string depLink;
+		std::string	depsTargets;
+		for (const VcProjectInfo * dep : project.dependentTargets)
+		{
+			const auto & depConfig = *std::find_if( dep->parsedConfigs.cbegin(), dep->parsedConfigs.cend(), [&config](const VcProjectInfo::ParsedConfig & pc) {
+				return pc.name == config.name;
+			});
+			const std::string outputName = this->Escape(depConfig.getOutputNameWithDir());
+			if (dep->type != Type::Unknown)
+				depsTargets += " " + outputName;
+			if (dep->type == Type::Dynamic)
+				depLink     += " " + this->Escape(depConfig.getImportNameWithDir());
+			else if (dep->type == Type::Static)
+				depLink     += " " + outputName;
+		}
 		for (const auto & customCmd : config.customCommands)
 		{
 			const auto escapedOut = this->Escape(customCmd.output);
 			if (existingRules.find(escapedOut) == existingRules.end())
 			{
+				const std::string deps = this->Escape(customCmd.deps) + (depsTargets.empty() || type != Type::Utility ? "" : " || " + depsTargets);
+				ss << "\nbuild " << escapedOut << " " << this->Escape(customCmd.additionalOutputs) << ": ";
 				if (customCmd.command.empty())
-					ss << "\nbuild " << escapedOut << " " << this->Escape(customCmd.additionalOutputs) << ": phony " << this->Escape(customCmd.deps) <<  "\n";
+					ss << "phony " << deps <<  "\n";
 				else
-					ss << "\nbuild " << escapedOut << " " << this->Escape(customCmd.additionalOutputs) << ": CUSTOM_COMMAND " << this->Escape(customCmd.deps) <<  "\n"
+					ss << "CUSTOM_COMMAND " << deps <<  "\n"
 						"  COMMAND = cmd.exe /C \"" << customCmd.command << "\" \n"
 						"  DESC = " << customCmd.message << "\n"
 						"  restat = 1\n"
@@ -137,34 +154,13 @@ void NinjaWriter::GenerateNinjaRules(const VcProjectInfo &project)
 			orderDeps += " " + escapedOut;
 		}
 
-		std::string depLink, depsTargets;
 		if (!orderDeps.empty())
 		{
 			orderOnlyTarget = "order_only_" + config.name + "_" + config.targetName;
 			ss << "\nbuild " << orderOnlyTarget << ": phony || " << orderDeps << "\n";
 			depsTargets = " " + orderOnlyTarget;
 		}
-		for (const VcProjectInfo * dep : project.dependentTargets)
-		{
-			const auto & depConfig = *std::find_if( dep->parsedConfigs.cbegin(), dep->parsedConfigs.cend(), [&config](const VcProjectInfo::ParsedConfig & pc) {
-				return pc.name == config.name;
-			});
-			if (dep->type == Type::Dynamic)
-			{
-				depLink     += " " + this->Escape(depConfig.getImportNameWithDir());
-				depsTargets += " " + this->Escape(depConfig.getOutputNameWithDir());
-			}
-			else if (dep->type == Type::Static)
-			{
-				const auto lib = this->Escape(depConfig.getOutputNameWithDir());
-				depsTargets += " " + lib;
-				depLink     += " " + lib;
-			}
-			else if (dep->type == Type::App || dep->type == Type::Utility)
-			{
-				depsTargets += " " + this->Escape(depConfig.getOutputNameWithDir());
-			}
-		}
+
 		if (type == Type::Utility)
 		{
 			ss << "\nbuild " << this->Escape(config.getOutputNameWithDir()) << ": phony || " << depsTargets << "\n";
