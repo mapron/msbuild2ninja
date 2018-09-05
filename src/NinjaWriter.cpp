@@ -6,6 +6,15 @@
 #include <iostream>
 #include <cassert>
 
+namespace
+{
+std::string AddQuotes(const std::string & str)
+{
+	const bool hasSpaces = str.find(' ') != std::string::npos;
+	return hasSpaces ? "\"" + str + "\"" : str;
+}
+}
+
 std::string NinjaWriter::Escape(std::string value)
 {
 	if (value.find(buildRoot) == 0)
@@ -175,7 +184,7 @@ void NinjaWriter::GenerateNinjaRules(const VcProjectInfo &project)
 			cmdDefines.push_back("/D" + def);
 		StringVector cmdIncludes;
 		for (const auto & inc : config.includes)
-			cmdIncludes.push_back("/I" + inc);
+			cmdIncludes.push_back("/I" + AddQuotes(inc));
 		const std::string preprocessor =
 			   "  DEFINES = " + joinVector(cmdDefines) + "\n"
 			   "  INCLUDES = " + joinVector(cmdIncludes) +"\n";
