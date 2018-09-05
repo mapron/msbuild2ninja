@@ -2,6 +2,21 @@
 
 #include <regex>
 #include <sstream>
+#include <cctype>
+
+namespace {
+
+static inline void trim(std::string &s)
+{
+	s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch) {
+		return !std::isspace(ch);
+	}));
+	s.erase(std::find_if(s.rbegin(), s.rend(), [](int ch) {
+		return !std::isspace(ch);
+	}).base(), s.end());
+}
+
+}
 
 std::string VariableMap::GetStrValue(const std::string & key) const
 {
@@ -13,7 +28,7 @@ std::string VariableMap::GetStrValue(const std::string & key) const
 
 std::string VariableMap::GetStrValueFiltered(const std::string &key) const
 {
-	static const std::regex re("\\%\\(\\w+\\)", std::regex_constants::ECMAScript | std::regex_constants::optimize);
+	static const std::regex re("[%$]\\(\\w+\\)", std::regex_constants::ECMAScript | std::regex_constants::optimize);
 
 	auto result = GetStrValue(key);
 	result = std::regex_replace(result, re, " ");
@@ -22,7 +37,7 @@ std::string VariableMap::GetStrValueFiltered(const std::string &key) const
 
 StringVector VariableMap::GetListValue(const std::string & key) const
 {
-	std::string val = GetStrValue(key);
+	std::string val = GetStrValueFiltered(key);
 	return strToList(val);
 }
 
@@ -87,7 +102,8 @@ StringVector strToList(const std::string & val, char sep)
 	StringVector result;
 	while (std::getline(ss, item, sep))
 	{
-		if (!item.empty() && item.at(0) != '%')
+		trim(item);
+		if (!item.empty() && item.at(0) != '%' && item.at(0) != '$')
 		{
 			result.push_back(item);
 		}
