@@ -14,10 +14,12 @@ namespace {
 	const std::string g_dryOption     = "--dry";
 	const std::string g_verboseOption = "--verbose";
 	const std::string g_depsOption    = "--deps"; // e.g. --deps InstallProduct=Release_InstallBuildFixupRelease
+	const std::string g_preferredConfigOption    = "--preferred-config"; // e.g. --preferred-config Debug
 }
 
 CommandLine::CommandLine(int argc, char *argv[])
 {
+	std::string preferredConfig;
 	for (int i=1; i< argc; ++i)
 	{
 		const std::string arg = argv[i];
@@ -27,6 +29,8 @@ CommandLine::CommandLine(int argc, char *argv[])
 			ninjaExe = argv[i + 1];
 		else if (arg == g_cmakeOption && i < argc -1)
 			cmakeExe = argv[i + 1];
+		else if (arg == g_preferredConfigOption && i < argc -1)
+			preferredConfig = argv[i + 1];
 		else if (arg == g_dryOption)
 			dryRun = true;
 		else if (arg == g_verboseOption)
@@ -44,6 +48,8 @@ CommandLine::CommandLine(int argc, char *argv[])
 	}
 	if (dryRun)
 		std::cout << "Dry run.\n";
+	if (preferredConfig == "Debug")
+		configs = StringVector{"Debug", "Release"};
 
 	StringVector slnFiles;
 	for(const fs::directory_entry& it : fs::directory_iterator(rootDir))
