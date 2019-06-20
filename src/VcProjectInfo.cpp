@@ -257,8 +257,8 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 	for (const ParsedConfig & config : parsedConfigs)
 	{
 		os << "<PropertyGroup Condition=\"'$(Configuration)|$(Platform)'=='" << config.name << "|" << config.platform << "'\">\n"
-		   << "  <NMakeBuildCommandLine>\""   << ninjaBin << "\" " << config.getOutputNameWithDir() << "</NMakeBuildCommandLine>\n"
-		   << "  <NMakeReBuildCommandLine>\"" << ninjaBin << "\" -t clean &amp;&amp; \"" << ninjaBin <<"\" " << config.getOutputNameWithDir() << "</NMakeReBuildCommandLine>\n"
+		   << "  <NMakeBuildCommandLine>\""   << ninjaBin << "\" " << config.getOutputAlias() << "</NMakeBuildCommandLine>\n"
+		   << "  <NMakeReBuildCommandLine>\"" << ninjaBin << "\" -t clean &amp;&amp; \"" << ninjaBin <<"\" " << config.getOutputAlias() << "</NMakeReBuildCommandLine>\n"
 		   << "  <NMakeCleanCommandLine>\""   << ninjaBin << "\" -t clean</NMakeCleanCommandLine>\n"
 		   << "  <NMakePreprocessorDefinitions>" << joinVector(config.defines, ';') << "</NMakePreprocessorDefinitions>\n"
 		   << "  <NMakeIncludeSearchPath>"       << joinVector(config.includes, ';') << "</NMakeIncludeSearchPath>\n"
@@ -402,4 +402,13 @@ std::ostream &operator <<(std::ostream &os, const VcProjectInfo &info) {
 		os << "\t" << cfg;
 	os << "\n";
 	return os;
+}
+
+std::string VcProjectInfo::ParsedConfig::getOutputAlias() const
+{
+	std::string result = getOutputNameWithDir();
+	std::replace(result.begin(), result.end(), ' ', '_');
+	std::replace(result.begin(), result.end(), '/', '_');
+	std::replace(result.begin(), result.end(), '\\', '_');
+	return result;
 }

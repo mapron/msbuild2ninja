@@ -55,29 +55,29 @@ void NinjaWriter::WriteFile(bool verbose) const
 						"  description = Building CXX object $out\n\n";
 
 	ninjaHeader << "rule CXX_STATIC_LIBRARY_LINKER\n"
-					   "  command = cmd.exe /C \"$PRE_LINK && link.exe /lib /nologo $LINK_FLAGS /out:$TARGET_FILE $in  && $POST_BUILD\"\n"
+					   "  command = cmd.exe /C \"$PRE_LINK && link.exe /lib /nologo $LINK_FLAGS /out:\"$TARGET_FILE\" $in  && $POST_BUILD\"\n"
 					   "  description = Linking CXX static library $TARGET_FILE\n"
 					   "  restat = $RESTAT\n";
 
 	ninjaHeader << "rule CXX_SHARED_LIBRARY_LINKER\n"
-		"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_dll --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:$TARGET_FILE /implib:$TARGET_IMPLIB /pdb:$TARGET_PDB /dll /version:0.0 $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES  && $POST_BUILD\"\n"
+		"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_dll --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:\"$TARGET_FILE\" /implib:\"$TARGET_IMPLIB\" /pdb:\"$TARGET_PDB\" /dll /version:0.0 $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES  && $POST_BUILD\"\n"
 		"  description = Linking CXX shared library $TARGET_FILE\n"
 		"  restat = 1\n";
 
 	ninjaHeader << "rule CXX_SHARED_LIBRARY_LINKER_RSP\n"
-		"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_dll --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo @$RSP_FILE  /out:$TARGET_FILE /implib:$TARGET_IMPLIB /pdb:$TARGET_PDB /dll /version:0.0 $LINK_FLAGS  && $POST_BUILD\"\n"
+		"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_dll --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo @\"$RSP_FILE\"  /out:\"$TARGET_FILE\" /implib:\"$TARGET_IMPLIB\" /pdb:\"$TARGET_PDB\" /dll /version:0.0 $LINK_FLAGS  && $POST_BUILD\"\n"
 		"  description = Linking CXX shared library $TARGET_FILE\n"
 		"  rspfile = $RSP_FILE\n"
 		"  rspfile_content = $in_newline $LINK_PATH $LINK_LIBRARIES \n"
 		"  restat = 1\n";
 
 	ninjaHeader << "rule CXX_EXECUTABLE_LINKER\n"
-		"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:$TARGET_FILE /pdb:$TARGET_PDB /version:0.0  $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES && $POST_BUILD\"\n"
+		"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo $in  /out:\"$TARGET_FILE\" /pdb:\"$TARGET_PDB\" /version:0.0  $LINK_FLAGS $LINK_PATH $LINK_LIBRARIES && $POST_BUILD\"\n"
 		"  description = Linking CXX executable $TARGET_FILE\n"
 		"  restat = $RESTAT\n";
 
 	ninjaHeader << "rule CXX_EXECUTABLE_LINKER_RSP\n"
-		"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo @$RSP_FILE  /out:$TARGET_FILE /pdb:$TARGET_PDB /version:0.0  $LINK_FLAGS && $POST_BUILD\"\n"
+		"  command = cmd.exe /C \"$PRE_LINK && \"" << cmakeExe << "\" -E vs_link_exe --intdir=$OBJECT_DIR --manifests $MANIFESTS -- link.exe /nologo @\"$RSP_FILE\"  /out:\"$TARGET_FILE\" /pdb:\"$TARGET_PDB\" /version:0.0  $LINK_FLAGS && $POST_BUILD\"\n"
 		"  rspfile = $RSP_FILE\n"
 		"  rspfile_content = $in_newline $LINK_PATH $LINK_LIBRARIES \n"
 		"  description = Linking CXX executable $TARGET_FILE\n"
@@ -173,7 +173,6 @@ void NinjaWriter::GenerateNinjaRules(const VcProjectInfo &project)
 		if (type == Type::Utility)
 		{
 			ss << "\nbuild " << this->Escape(config.getOutputNameWithDir()) << ": phony || " << depsTargets << "\n";
-
 			continue;
 		}
 
@@ -209,8 +208,8 @@ void NinjaWriter::GenerateNinjaRules(const VcProjectInfo &project)
 
 
 		std::string linkLibraries = joinVector(config.link);
-		//ss << "\nbuild " << libTargetName << ": phony " << depObjs << "\n";
 		std::string linkFlags = joinVector(config.linkFlags);
+
 		if (type == Type::App || type == Type::Dynamic)
 		{
 			const bool useRsp = linkFlags.size() + linkLibraries.size() + depLink.size() + depObjs.size() > 2000; // do not support NT 4
@@ -247,6 +246,7 @@ void NinjaWriter::GenerateNinjaRules(const VcProjectInfo &project)
 		   "  TARGET_PDB = " << config.name << "\\" << config.targetName << ".pdb\n"
 				  ;
 		}
+		ss << "\nbuild " << this->Escape(config.getOutputAlias()) << ": phony || " << this->Escape(config.getOutputNameWithDir()) << "\n";
 	}
 
 	targetRules << ss.str();

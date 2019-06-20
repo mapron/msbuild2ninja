@@ -59,6 +59,7 @@ struct VcProjectInfo
 
 		std::string getOutputName() const { return targetName + targetMainExt;}
 		std::string getOutputNameWithDir() const { return outDir + getOutputName(); }
+		std::string getOutputAlias() const;
 		std::string getImportName() const { return targetImportExt.empty() ? "" : targetName + targetImportExt;}
 		std::string getImportNameWithDir() const { return targetImportExt.empty() ? "" : intDir + getImportName();}
 	};
