@@ -326,6 +326,18 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 		const std::string customBuildRule = projectFileData.substr(startPos, endPos-startPos);
 		projectFileData.erase(projectFileData.begin() + startPos, projectFileData.begin() + endPos + endCustomBuild.size() );
 
+		StringVector includes;
+		const std::string includeStartMark = "Include=\"";
+		auto includeStartPos = customBuildRule.find(includeStartMark);
+		if (includeStartPos != std::string::npos)
+		{
+			auto includeEndPos = customBuildRule.find("\">", includeStartPos);
+			if (includeEndPos != std::string::npos)
+			{
+				includes = strToList(customBuildRule.substr(includeStartPos + includeStartMark.length(), includeEndPos - includeStartPos - includeStartMark.length()));
+			}
+		}
+
 		for (ParsedConfig & config : parsedConfigs)
 		{
 			CustomBuild rule;
@@ -346,6 +358,7 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 				rule.additionalOutputs = outputs;
 			}
 			auto inputs = strToList(extractParamConfig("AdditionalInputs"));
+			inputs.insert(inputs.end(), includes.begin(), includes.end());
 			inputs = filterCustomInputs(inputs);
 			if (inputs.empty())
 				inputs = customDeps;
