@@ -128,6 +128,12 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations, const 
 			return {};
 		return std::regex_replace(standard, std::regex("stdcpp"), "-std:c++");
 	};
+	auto convertWarningVersion = [](const std::string & version) -> std::string
+	{
+		if (version.empty())
+			return {};
+		return "/Wv:" + version;
+	};
 	for (const auto & configName : configurations)
 	{
 		auto configIt = std::find_if( configs.begin(), configs.end(), [&configName](const Config & config){ return config.configuration == configName;});
@@ -185,6 +191,7 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations, const 
 		if (config.clVariables.GetBoolValue("TreatWarningAsError"))
 			pc.flags.push_back("/WX");
 		pc.flags.push_back(convertStandardToFlag(config.clVariables.GetStrValue("LanguageStandard")));
+		pc.flags.push_back(convertWarningVersion(config.clVariables.GetStrValue("WarningVersion")));
 
 
 		auto additionalOptionsLink = config.linkVariables.GetStrValueFiltered("AdditionalOptions");
