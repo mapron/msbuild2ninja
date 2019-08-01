@@ -172,6 +172,11 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations, const 
 			if (!t.empty())
 				pc.linkFlags.push_back(t);
 		};
+		auto addFlagIfNotEmpty = [&pc](const std::string & value) {
+			if (value.empty())
+				return;
+			pc.flags.push_back(value);
+		};
 		flagsProcess("RuntimeLibrary", {{"MultiThreadedDLL", "/MD"}, {"MultiThreadedDebugDLL", "/MDd"},{"MultiThreaded", "/MT"}, {"MultiThreadedDebug", "/MTd"}});
 		flagsProcess("ExceptionHandling", {{"Sync", "/EHsc"}});
 		flagsProcess("Optimization", {{"Disabled", "/Od"}, {"MinSpace", "/O1"}, {"MaxSpeed", "/O2"}});
@@ -190,8 +195,8 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations, const 
 			pc.flags.push_back(additionalOptions);
 		if (config.clVariables.GetBoolValue("TreatWarningAsError"))
 			pc.flags.push_back("/WX");
-		pc.flags.push_back(convertStandardToFlag(config.clVariables.GetStrValue("LanguageStandard")));
-		pc.flags.push_back(convertWarningVersion(config.clVariables.GetStrValue("WarningVersion")));
+		addFlagIfNotEmpty(convertStandardToFlag(config.clVariables.GetStrValue("LanguageStandard")));
+		addFlagIfNotEmpty(convertWarningVersion(config.clVariables.GetStrValue("WarningVersion")));
 
 
 		auto additionalOptionsLink = config.linkVariables.GetStrValueFiltered("AdditionalOptions");
