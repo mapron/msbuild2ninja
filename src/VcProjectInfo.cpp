@@ -122,6 +122,18 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations, const 
 		});
 		return result;
 	};
+	auto convertStandardToFlag = [](const std::string & standard) -> std::string
+	{
+		if (standard.empty())
+			return {};
+		return std::regex_replace(standard, std::regex("stdcpp"), "-std:c++");
+	};
+	auto convertWarningVersion = [](const std::string & version) -> std::string
+	{
+		if (version.empty())
+			return {};
+		return "/Wv:" + version;
+	};
 	for (const auto & configName : configurations)
 	{
 		auto configIt = std::find_if( configs.begin(), configs.end(), [&configName](const Config & config){ return config.configuration == configName;});
@@ -160,6 +172,11 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations, const 
 			if (!t.empty())
 				pc.linkFlags.push_back(t);
 		};
+		auto addFlagIfNotEmpty = [&pc](const std::string & value) {
+			if (value.empty())
+				return;
+			pc.flags.push_back(value);
+		};
 		flagsProcess("RuntimeLibrary", {{"MultiThreadedDLL", "/MD"}, {"MultiThreadedDebugDLL", "/MDd"},{"MultiThreaded", "/MT"}, {"MultiThreadedDebug", "/MTd"}});
 		flagsProcess("ExceptionHandling", {{"Sync", "/EHsc"}});
 		flagsProcess("Optimization", {{"Disabled", "/Od"}, {"MinSpace", "/O1"}, {"MaxSpeed", "/O2"}});
@@ -178,6 +195,8 @@ void VcProjectInfo::TransformConfigs(const StringVector & configurations, const 
 			pc.flags.push_back(additionalOptions);
 		if (config.clVariables.GetBoolValue("TreatWarningAsError"))
 			pc.flags.push_back("/WX");
+		addFlagIfNotEmpty(convertStandardToFlag(config.clVariables.GetStrValue("LanguageStandard")));
+		addFlagIfNotEmpty(convertWarningVersion(config.clVariables.GetStrValue("WarningVersion")));
 
 
 		auto additionalOptionsLink = config.linkVariables.GetStrValueFiltered("AdditionalOptions");
@@ -326,6 +345,18 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 		const std::string customBuildRule = projectFileData.substr(startPos, endPos-startPos);
 		projectFileData.erase(projectFileData.begin() + startPos, projectFileData.begin() + endPos + endCustomBuild.size() );
 
+		StringVector includes;
+		const std::string includeStartMark = "Include=\"";
+		auto includeStartPos = customBuildRule.find(includeStartMark);
+		if (includeStartPos != std::string::npos)
+		{
+			auto includeEndPos = customBuildRule.find("\">", includeStartPos);
+			if (includeEndPos != std::string::npos)
+			{
+				includes = strToList(customBuildRule.substr(includeStartPos + includeStartMark.length(), includeEndPos - includeStartPos - includeStartMark.length()));
+			}
+		}
+
 		for (ParsedConfig & config : parsedConfigs)
 		{
 			CustomBuild rule;
@@ -346,6 +377,7 @@ void VcProjectInfo::ConvertToMakefile(const std::string &ninjaBin, const StringV
 				rule.additionalOutputs = outputs;
 			}
 			auto inputs = strToList(extractParamConfig("AdditionalInputs"));
+			inputs.insert(inputs.end(), includes.begin(), includes.end());
 			inputs = filterCustomInputs(inputs);
 			if (inputs.empty())
 				inputs = customDeps;
