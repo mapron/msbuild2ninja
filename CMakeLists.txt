@@ -11,19 +11,15 @@
   limitations under the License.h
 #]]
 
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.15)
 project(Msbuild2ninja)
 
 #platform configuration.
 if (MSVC)
 	add_definitions(-D_CRT_SECURE_NO_WARNINGS -DNOMINMAX /wd4267 /wd4244)
+	set(CMAKE_CXX_FLAGS_DEBUG "/MDd /Zi /O2")
 endif()
-
-if (NOT MSVC)
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z ")
-else()
-		set(CMAKE_CXX_FLAGS_DEBUG "/MDd /Zi /O2")
-endif()
+set(CMAKE_CXX_STANDARD 17)
 
 set(sys_deps)
 if ( WIN32)

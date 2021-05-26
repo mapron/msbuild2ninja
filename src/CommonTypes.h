@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <ostream>
 #include <stdint.h>
 
 using StringVector = std::vector<std::string>;

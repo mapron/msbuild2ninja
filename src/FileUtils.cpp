@@ -21,32 +21,19 @@
 #include <fstream>
 #include <streambuf>
 
-#ifdef HAS_BOOST
-#include <boost/filesystem.hpp>
-namespace fs = boost::filesystem;
-#define u8string string
-using fserr = boost::system::error_code;
-#else
-#include <experimental/filesystem>
-namespace fs = std::experimental::filesystem;
+#include <filesystem>
+namespace fs = std::filesystem;
 using fserr = std::error_code;
-#endif
 
 #ifdef _MSC_VER
-#define strtoull _strtoui64
 #define getcwd _getcwd
-#define PATH_MAX _MAX_PATH
 #endif
 
-#if defined( _WIN32)
+#ifdef _WIN32
 #include <Windows.h>
 #include <io.h>
 #include <share.h>
 #include <direct.h>
-#else
-#include <unistd.h>
-#include <errno.h>
-inline int GetLastError() { return errno; }
 #endif
 
 namespace {
